@@ -197,13 +197,17 @@ func extractHostFromPath(path string) string {
 	// Common patterns: user@host:port or user@host
 	if idx := strings.Index(base, "@"); idx > 0 {
 		rest := base[idx+1:]
+		
+		// First remove any file extensions (.sock, etc)
+		if strings.HasSuffix(rest, ".sock") {
+			rest = strings.TrimSuffix(rest, ".sock")
+		}
+		
+		// Then extract host from host:port format
 		if colonIdx := strings.Index(rest, ":"); colonIdx > 0 {
 			return rest[:colonIdx]
 		}
-		// Remove any file extensions
-		if dotIdx := strings.Index(rest, "."); dotIdx > 0 {
-			return rest[:dotIdx]
-		}
+		
 		return rest
 	}
 	

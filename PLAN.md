@@ -67,10 +67,10 @@ Remote development workflows often require browser-based OAuth flows that redire
 - [x] Add debug/verbose logging modes
 
 ### Phase 5: Testing & Documentation
-- [ ] Unit tests for each component
+- [x] Unit tests for each component
 - [ ] Integration tests with mock SSH
 - [ ] Real-world testing with OAuth flows
-- [ ] Write README with examples
+- [x] Write README with examples
 
 ## Technical Decisions
 
