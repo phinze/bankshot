@@ -34,14 +34,14 @@ func init() {
 			if a.Key == slog.LevelKey {
 				// Shorten level names
 				level := a.Value.Any().(slog.Level)
-				switch {
-				case level == slog.LevelDebug:
+				switch level {
+				case slog.LevelDebug:
 					a.Value = slog.StringValue("DBG")
-				case level == slog.LevelInfo:
+				case slog.LevelInfo:
 					a.Value = slog.StringValue("INF")
-				case level == slog.LevelWarn:
+				case slog.LevelWarn:
 					a.Value = slog.StringValue("WRN")
-				case level == slog.LevelError:
+				case slog.LevelError:
 					a.Value = slog.StringValue("ERR")
 				}
 			}

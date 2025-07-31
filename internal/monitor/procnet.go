@@ -27,9 +27,8 @@ func parseProcNet(path string, protocol string) ([]Port, error) {
 	scanner := bufio.NewScanner(file)
 	
 	// Skip header line
-	if scanner.Scan() {
-		// Header: sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
-	}
+	// Header: sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+	scanner.Scan()
 
 	for scanner.Scan() {
 		line := scanner.Text()

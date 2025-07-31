@@ -199,9 +199,7 @@ func extractHostFromPath(path string) string {
 		rest := base[idx+1:]
 		
 		// First remove any file extensions (.sock, etc)
-		if strings.HasSuffix(rest, ".sock") {
-			rest = strings.TrimSuffix(rest, ".sock")
-		}
+		rest = strings.TrimSuffix(rest, ".sock")
 		
 		// Then extract host from host:port format
 		if colonIdx := strings.Index(rest, ":"); colonIdx > 0 {
