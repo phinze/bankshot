@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/phinze/bankshot/internal/logger"
 	"github.com/phinze/bankshot/internal/monitor"
@@ -20,6 +21,11 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <command> [args...]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nWraps a command and automatically forwards any ports it binds via SSH.\n")
+		fmt.Fprintf(os.Stderr, "\nEnvironment variables:\n")
+		fmt.Fprintf(os.Stderr, "  BANKSHOT_DEBUG=1          Enable debug logging\n")
+		fmt.Fprintf(os.Stderr, "  BANKSHOT_QUIET=1          Suppress all but error messages\n")
+		fmt.Fprintf(os.Stderr, "  BANKSHOT_LOG_FORMAT=json  Output logs in JSON format\n")
+		fmt.Fprintf(os.Stderr, "  BANKSHOT_SSH_SOCKET=path  Override ControlMaster socket path\n")
 		os.Exit(1)
 	}
 
@@ -37,7 +43,7 @@ func main() {
 	
 	if err := pm.Start(); err != nil {
 		log.Error("failed to start process", slog.String("error", err.Error()))
-		os.Exit(1)
+		os.Exit(127) // Command not found
 	}
 	
 	log.Debug("process started", slog.Int("pid", pm.PID()))
@@ -71,7 +77,26 @@ func main() {
 	
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(sigChan)
+	
+	// Set up cleanup
+	cleanup := func() {
+		log.Debug("performing cleanup")
+		cancel() // Stop port monitoring
+		
+		// Give goroutines time to finish
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cleanupCancel()
+		
+		// Wait for cleanup or timeout
+		select {
+		case <-cleanupCtx.Done():
+			log.Warn("cleanup timeout exceeded")
+		case <-time.After(100 * time.Millisecond):
+			// Quick cleanup completed
+		}
+	}
 	
 	// Wait for process to complete or signal
 	done := make(chan struct{})
@@ -89,12 +114,27 @@ func main() {
 	select {
 	case <-done:
 		// Process exited normally
-		cancel() // Stop port monitoring
+		cleanup()
 	case sig := <-sigChan:
 		// Forward signal and wait for exit
 		log.Debug("received signal", slog.String("signal", sig.String()))
-		cancel() // Stop port monitoring
-		<-done
+		
+		// Give process time to handle signal gracefully
+		gracefulCtx, gracefulCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer gracefulCancel()
+		
+		select {
+		case <-done:
+			// Process exited after signal
+		case <-gracefulCtx.Done():
+			// Force kill if needed
+			if err := pm.Stop(context.Background()); err != nil {
+				log.Error("failed to stop process", slog.String("error", err.Error()))
+			}
+			<-done
+		}
+		
+		cleanup()
 	}
 	
 	log.Info("process exited", slog.Int("exit_code", exitCode))
