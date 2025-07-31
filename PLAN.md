@@ -44,21 +44,21 @@ Remote development workflows often require browser-based OAuth flows that redire
 
 ### Phase 1: Core Infrastructure
 - [x] Set up project structure with Nix/Go
-- [ ] Create basic CLI skeleton with cobra/urfave
-- [ ] Implement process spawning and signal forwarding
-- [ ] Add structured logging with slog
+- [x] Create basic CLI skeleton with cobra/urfave
+- [x] Implement process spawning and signal forwarding
+- [x] Add structured logging with slog
 
 ### Phase 2: Port Detection
-- [ ] Implement `/proc/net/tcp` parser
-- [ ] Add port monitoring goroutine
-- [ ] Create port change detection logic
-- [ ] Add debouncing for rapid port changes
+- [x] Implement `/proc/net/tcp` parser
+- [x] Add port monitoring goroutine
+- [x] Create port change detection logic
+- [x] Add debouncing for rapid port changes
 
 ### Phase 3: SSH Integration
-- [ ] Detect SSH environment variables
-- [ ] Find ControlMaster socket path
-- [ ] Implement `ssh -O check` validation
-- [ ] Add `ssh -O forward` command execution
+- [x] Detect SSH environment variables
+- [x] Find ControlMaster socket path
+- [x] Implement `ssh -O check` validation
+- [x] Add `ssh -O forward` command execution
 
 ### Phase 4: Integration & Polish
 - [ ] Wire all components together

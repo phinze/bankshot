@@ -11,6 +11,7 @@ import (
 	"github.com/phinze/bankshot/internal/logger"
 	"github.com/phinze/bankshot/internal/monitor"
 	"github.com/phinze/bankshot/internal/process"
+	"github.com/phinze/bankshot/internal/ssh"
 )
 
 func main() {
@@ -45,6 +46,20 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	
+	// Initialize SSH manager
+	sshMgr, err := ssh.NewManager(log)
+	if err != nil {
+		log.Warn("SSH forwarding unavailable", slog.String("error", err.Error()))
+		log.Info("continuing without port forwarding")
+		// Continue without SSH forwarding
+		sshMgr = nil
+	}
+	defer func() {
+		if sshMgr != nil {
+			sshMgr.Cleanup()
+		}
+	}()
+	
 	// Start port monitoring
 	portMon := monitor.New(pm.PID(), log)
 	if err := portMon.Start(ctx); err != nil {
@@ -52,7 +67,7 @@ func main() {
 	}
 	
 	// Handle port events in background
-	go handlePortEvents(ctx, portMon.Events(), log)
+	go handlePortEvents(ctx, portMon.Events(), sshMgr, log)
 	
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -86,7 +101,7 @@ func main() {
 	os.Exit(exitCode)
 }
 
-func handlePortEvents(ctx context.Context, events <-chan monitor.PortEvent, log *slog.Logger) {
+func handlePortEvents(ctx context.Context, events <-chan monitor.PortEvent, sshMgr *ssh.Manager, log *slog.Logger) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -98,17 +113,33 @@ func handlePortEvents(ctx context.Context, events <-chan monitor.PortEvent, log 
 			
 			switch event.EventType {
 			case monitor.PortOpened:
-				log.Info("port opened - would forward", 
-					slog.Int("port", event.Port.Port),
-					slog.String("protocol", event.Port.Protocol),
-				)
-				// TODO: Add SSH port forwarding here
+				if sshMgr != nil {
+					if err := sshMgr.AddPortForward(event.Port.Port); err != nil {
+						log.Error("failed to add port forward",
+							slog.Int("port", event.Port.Port),
+							slog.String("error", err.Error()),
+						)
+					}
+				} else {
+					log.Info("port opened (no SSH forwarding available)", 
+						slog.Int("port", event.Port.Port),
+						slog.String("protocol", event.Port.Protocol),
+					)
+				}
 			case monitor.PortClosed:
-				log.Info("port closed - would remove forward", 
-					slog.Int("port", event.Port.Port),
-					slog.String("protocol", event.Port.Protocol),
-				)
-				// TODO: Remove SSH port forwarding here
+				if sshMgr != nil {
+					if err := sshMgr.RemovePortForward(event.Port.Port); err != nil {
+						log.Error("failed to remove port forward",
+							slog.Int("port", event.Port.Port),
+							slog.String("error", err.Error()),
+						)
+					}
+				} else {
+					log.Info("port closed (no SSH forwarding available)", 
+						slog.Int("port", event.Port.Port),
+						slog.String("protocol", event.Port.Protocol),
+					)
+				}
 			}
 		}
 	}
