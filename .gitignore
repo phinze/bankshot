@@ -1,0 +1,6 @@
+# Binary
+bankshot
+
+# Nix
+.direnv/
+result
