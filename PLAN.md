@@ -78,13 +78,13 @@ When working on remote servers via SSH, these workflows fail because:
 
 ## Implementation Phases
 
-### Phase 1: Daemon Foundation
-- [ ] Create `bankshotd` with cobra/viper
-- [ ] Implement Unix socket listener
-- [ ] Add TCP socket support option
-- [ ] Configuration file support (`~/.config/bankshot/config.yaml`)
-- [ ] Signal handling (SIGTERM, SIGINT)
-- [ ] Structured logging with slog
+### Phase 1: Daemon Foundation ✓
+- [x] Create `bankshotd` with cobra/viper
+- [x] Implement Unix socket listener
+- [x] Add TCP socket support option
+- [x] Configuration file support (`~/.config/bankshot/config.yaml`)
+- [x] Signal handling (SIGTERM, SIGINT)
+- [x] Structured logging with slog
 
 ### Phase 2: URL Opening
 - [ ] Design command protocol (JSON over socket)
