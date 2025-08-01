@@ -4,3 +4,6 @@ bankshot
 # Nix
 .direnv/
 result
+
+# Staged misc
+tmp/
