@@ -514,10 +514,10 @@ func (d *Daemon) autoDiscoverForwards() error {
 			continue
 		}
 
-		// Register the forward in our forwarder
+		// Register the forward in our forwarder (without executing SSH command)
 		// Note: We're assuming the remote port is the same as local port
 		// This might not always be accurate, but it's a reasonable default
-		err := d.forwarder.AddForward(
+		err := d.forwarder.RegisterExistingForward(
 			fwd.SocketPath,
 			fwd.ConnectionInfo,
 			fwd.RemotePort,
@@ -533,11 +533,6 @@ func (d *Daemon) autoDiscoverForwards() error {
 		}
 
 		registeredCount++
-		d.logger.Info("Registered discovered forward",
-			"localPort", fwd.LocalPort,
-			"remotePort", fwd.RemotePort,
-			"remoteHost", fwd.RemoteHost,
-			"connectionInfo", fwd.ConnectionInfo)
 	}
 
 	d.logger.Info("Auto-discovery complete",

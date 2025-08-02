@@ -103,6 +103,53 @@ func (f *Forwarder) AddForward(socketPath string, connectionInfo string, remoteP
 	return nil
 }
 
+// RegisterExistingForward registers a forward that already exists (e.g., discovered on startup)
+func (f *Forwarder) RegisterExistingForward(socketPath string, connectionInfo string, remotePort, localPort int, host string) error {
+	if host == "" {
+		host = "localhost"
+	}
+	if localPort == 0 {
+		localPort = remotePort
+	}
+
+	// Include connection info in key to support multiple SSH sessions
+	key := fmt.Sprintf("%s:%s:%d", connectionInfo, host, remotePort)
+
+	// Check if already registered
+	f.mu.RLock()
+	if existing, ok := f.forwards[key]; ok {
+		f.mu.RUnlock()
+		f.logger.Debug("Forward already registered",
+			"remote", fmt.Sprintf("%s:%d", host, remotePort),
+			"local", existing.LocalPort,
+		)
+		return nil
+	}
+	f.mu.RUnlock()
+
+	// Store forward info without executing SSH command
+	forward := &Forward{
+		RemotePort:     remotePort,
+		LocalPort:      localPort,
+		Host:           host,
+		SocketPath:     socketPath,
+		ConnectionInfo: connectionInfo,
+		CreatedAt:      time.Now(),
+	}
+
+	f.mu.Lock()
+	f.forwards[key] = forward
+	f.mu.Unlock()
+
+	f.logger.Info("Registered existing forward",
+		"remote", fmt.Sprintf("%s:%d", host, remotePort),
+		"local", localPort,
+		"connectionInfo", connectionInfo,
+	)
+
+	return nil
+}
+
 // RemoveForward removes a port forward
 func (f *Forwarder) RemoveForward(connectionInfo string, remotePort int, host string) error {
 	if host == "" {
