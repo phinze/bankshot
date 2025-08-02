@@ -319,7 +319,7 @@ func TestKeyGeneration(t *testing.T) {
 	f.mu.Lock()
 	key1 := fmt.Sprintf("%s:%s:%d", "host1", "localhost", 8080)
 	key2 := fmt.Sprintf("%s:%s:%d", "host2", "localhost", 8080)
-	
+
 	f.forwards[key1] = &Forward{
 		RemotePort:     8080,
 		LocalPort:      8081,

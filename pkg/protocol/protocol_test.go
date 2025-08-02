@@ -154,9 +154,9 @@ func TestNewSuccessResponse(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "string data",
-			id:   "test-1",
-			data: "success",
+			name:    "string data",
+			id:      "test-1",
+			data:    "success",
 			wantErr: false,
 		},
 		{
@@ -170,9 +170,9 @@ func TestNewSuccessResponse(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "nil data",
-			id:   "test-3",
-			data: nil,
+			name:    "nil data",
+			id:      "test-3",
+			data:    nil,
 			wantErr: false,
 		},
 	}
@@ -215,8 +215,8 @@ func TestPayloadParsing(t *testing.T) {
 
 	t.Run("ForwardRequest", func(t *testing.T) {
 		req := Request{
-			ID:      "test",
-			Type:    CommandForward,
+			ID:   "test",
+			Type: CommandForward,
 			Payload: json.RawMessage(`{
 				"remote_port": 8080,
 				"local_port": 8081,
@@ -246,8 +246,8 @@ func TestPayloadParsing(t *testing.T) {
 
 	t.Run("UnforwardRequest", func(t *testing.T) {
 		req := Request{
-			ID:      "test",
-			Type:    CommandUnforward,
+			ID:   "test",
+			Type: CommandUnforward,
 			Payload: json.RawMessage(`{
 				"remote_port": 8080,
 				"host": "localhost",

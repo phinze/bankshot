@@ -96,7 +96,7 @@ func (m *MockSSH) Path() string {
 func (m *MockSSH) CreateControlSocket(connectionInfo string) string {
 	// Create a mock socket file
 	socketPath := filepath.Join(m.tmpDir, fmt.Sprintf("bankshot-test-%s", strings.ReplaceAll(connectionInfo, "@", "-")))
-	
+
 	// Create empty file to simulate socket
 	if err := os.WriteFile(socketPath, []byte{}, 0600); err != nil {
 		m.t.Fatalf("Failed to create mock socket: %v", err)

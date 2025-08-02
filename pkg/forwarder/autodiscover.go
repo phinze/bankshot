@@ -65,7 +65,7 @@ func findSSHControlMasterProcesses(logger *slog.Logger) ([]sshProcess, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		// Look for SSH mux processes
 		if strings.Contains(line, "ssh:") && strings.Contains(line, "[mux]") {
 			fields := strings.Fields(line)
@@ -81,7 +81,7 @@ func findSSHControlMasterProcesses(logger *slog.Logger) ([]sshProcess, error) {
 			// Extract connection info from the command
 			// Format is typically: ssh: /path/to/socket_host_port_user [mux]
 			command := strings.Join(fields[10:], " ")
-			
+
 			// Parse socket path from command
 			socketPath := ""
 			if idx := strings.Index(command, "ssh: "); idx >= 0 {
@@ -115,17 +115,17 @@ func findSSHControlMasterProcesses(logger *slog.Logger) ([]sshProcess, error) {
 // extractConnectionInfo tries to extract connection info from socket path
 func extractConnectionInfo(socketPath string) string {
 	// Socket paths often contain the connection info
-	// Common patterns: 
+	// Common patterns:
 	// - /tmp/ssh_mux_hostname_port_user
 	// - ~/.ssh/master-user@hostname:port
-	
+
 	parts := strings.Split(socketPath, "/")
 	if len(parts) == 0 {
 		return ""
 	}
 
 	filename := parts[len(parts)-1]
-	
+
 	// Try to parse ssh_mux_* pattern
 	if strings.HasPrefix(filename, "ssh_mux_") {
 		components := strings.Split(strings.TrimPrefix(filename, "ssh_mux_"), "_")
@@ -159,7 +159,7 @@ func discoverProcessForwards(logger *slog.Logger, proc sshProcess) ([]SSHForward
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		// Look for LISTEN lines on localhost
 		if !strings.Contains(line, "LISTEN") || !strings.Contains(line, "127.0.0.1") {
 			continue
@@ -215,7 +215,7 @@ func QuerySSHForwards(logger *slog.Logger, connectionInfo string) ([]SSHForward,
 	// Unfortunately, SSH doesn't provide a direct way to list active forwards
 	// We would need to enhance this with platform-specific methods or
 	// maintain our own state tracking
-	
+
 	logger.Debug("SSH connection is active",
 		"connectionInfo", connectionInfo)
 

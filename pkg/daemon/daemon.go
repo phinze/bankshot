@@ -18,8 +18,8 @@ import (
 	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/forwarder"
 	"github.com/phinze/bankshot/pkg/opener"
-	"github.com/phinze/bankshot/version"
 	"github.com/phinze/bankshot/pkg/protocol"
+	"github.com/phinze/bankshot/version"
 )
 
 // Daemon represents the bankshot daemon

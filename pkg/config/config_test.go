@@ -75,7 +75,7 @@ log_level: warn`,
 			// Create temp file
 			tmpDir := t.TempDir()
 			tmpFile := filepath.Join(tmpDir, "config.yaml")
-			
+
 			if tt.content != "" {
 				if err := os.WriteFile(tmpFile, []byte(tt.content), 0644); err != nil {
 					t.Fatalf("Failed to write test config: %v", err)
@@ -201,7 +201,7 @@ func TestValidate(t *testing.T) {
 
 func TestValidateLogLevels(t *testing.T) {
 	validLevels := []string{"debug", "info", "warn", "error"}
-	
+
 	for _, level := range validLevels {
 		cfg := &Config{
 			Network:    "unix",

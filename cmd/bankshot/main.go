@@ -604,7 +604,7 @@ func init() {
 
 	forwardCmd.Flags().StringVarP(&forwardHost, "host", "H", "localhost", "Remote host to forward from")
 	forwardCmd.Flags().StringVarP(&forwardConnection, "connection", "c", "", "SSH connection identifier (e.g., hostname used in ssh command)")
-	
+
 	unforwardCmd.Flags().StringVarP(&unforwardHost, "host", "H", "localhost", "Remote host")
 	unforwardCmd.Flags().StringVarP(&unforwardConnection, "connection", "c", "", "SSH connection identifier")
 

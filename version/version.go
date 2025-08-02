@@ -4,13 +4,13 @@ package version
 var (
 	// Version is the semantic version of the application
 	Version = "dev"
-	
+
 	// Commit is the git commit hash
 	Commit = "none"
-	
+
 	// Date is the build date
 	Date = "unknown"
-	
+
 	// BuiltBy indicates what triggered the build (e.g., goreleaser, make, go build)
 	BuiltBy = "unknown"
 )
