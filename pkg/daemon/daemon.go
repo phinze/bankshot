@@ -94,6 +94,11 @@ func (d *Daemon) Run() error {
 		"address", d.config.Address,
 	)
 
+	// Auto-discover existing SSH port forwards
+	if err := d.autoDiscoverForwards(); err != nil {
+		d.logger.Warn("Failed to auto-discover forwards", "error", err)
+	}
+
 	// Start accepting connections
 	d.wg.Add(1)
 	go d.acceptConnections()
@@ -415,5 +420,60 @@ func (d *Daemon) shutdown() error {
 	}
 
 	d.logger.Info("Daemon stopped")
+	return nil
+}
+
+// autoDiscoverForwards discovers and registers existing SSH port forwards
+func (d *Daemon) autoDiscoverForwards() error {
+	d.logger.Info("Auto-discovering existing SSH port forwards")
+
+	// Discover active forwards
+	forwards, err := forwarder.DiscoverActiveForwards(d.logger)
+	if err != nil {
+		return fmt.Errorf("failed to discover forwards: %w", err)
+	}
+
+	d.logger.Info("Discovered forwards", "count", len(forwards))
+
+	// Register each discovered forward
+	registeredCount := 0
+	for _, fwd := range forwards {
+		// Skip if no connection info
+		if fwd.ConnectionInfo == "" {
+			d.logger.Debug("Skipping forward without connection info",
+				"localPort", fwd.LocalPort)
+			continue
+		}
+
+		// Register the forward in our forwarder
+		// Note: We're assuming the remote port is the same as local port
+		// This might not always be accurate, but it's a reasonable default
+		err := d.forwarder.AddForward(
+			fwd.SocketPath,
+			fwd.ConnectionInfo,
+			fwd.RemotePort,
+			fwd.LocalPort,
+			fwd.RemoteHost,
+		)
+		if err != nil {
+			d.logger.Warn("Failed to register discovered forward",
+				"localPort", fwd.LocalPort,
+				"connectionInfo", fwd.ConnectionInfo,
+				"error", err)
+			continue
+		}
+
+		registeredCount++
+		d.logger.Info("Registered discovered forward",
+			"localPort", fwd.LocalPort,
+			"remotePort", fwd.RemotePort,
+			"remoteHost", fwd.RemoteHost,
+			"connectionInfo", fwd.ConnectionInfo)
+	}
+
+	d.logger.Info("Auto-discovery complete",
+		"discovered", len(forwards),
+		"registered", registeredCount)
+
 	return nil
 }
