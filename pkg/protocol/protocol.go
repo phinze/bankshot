@@ -95,6 +95,24 @@ func ParseRequest(data []byte) (*Request, error) {
 	return &req, nil
 }
 
+// MarshalRequest marshals a request to JSON
+func MarshalRequest(req *Request) ([]byte, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	return data, nil
+}
+
+// ParseResponse parses a JSON response
+func ParseResponse(data []byte) (*Response, error) {
+	var resp Response
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	return &resp, nil
+}
+
 // MarshalResponse marshals a response to JSON
 func MarshalResponse(resp *Response) ([]byte, error) {
 	data, err := json.Marshal(resp)

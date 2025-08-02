@@ -56,6 +56,11 @@ func (d *Daemon) Run() error {
 
 	// Clean up existing socket if unix
 	if d.config.Network == "unix" {
+		// Check if another daemon is already running
+		if err := d.checkExistingDaemon(); err != nil {
+			return err
+		}
+
 		// Set umask for socket permissions (user-only access)
 		oldUmask := syscall.Umask(0077)
 		defer syscall.Umask(oldUmask)
@@ -421,6 +426,70 @@ func (d *Daemon) shutdown() error {
 
 	d.logger.Info("Daemon stopped")
 	return nil
+}
+
+// checkExistingDaemon checks if another daemon instance is already running
+func (d *Daemon) checkExistingDaemon() error {
+	// First check if the socket file exists
+	if _, err := os.Stat(d.config.Address); err != nil {
+		if os.IsNotExist(err) {
+			// Socket doesn't exist, we're good to go
+			return nil
+		}
+		return fmt.Errorf("failed to check socket: %w", err)
+	}
+
+	// Socket exists, try to connect to it
+	conn, err := net.Dial(d.config.Network, d.config.Address)
+	if err != nil {
+		// Can't connect, socket is stale
+		d.logger.Debug("Found stale socket, will clean up", "address", d.config.Address)
+		return nil
+	}
+	defer conn.Close()
+
+	// Try to send a status request to verify it's actually a bankshot daemon
+	req := &protocol.Request{
+		ID:   "check-" + fmt.Sprintf("%d", time.Now().Unix()),
+		Type: protocol.CommandStatus,
+	}
+
+	data, err := protocol.MarshalRequest(req)
+	if err != nil {
+		// Can't marshal request, assume it's not our daemon
+		return nil
+	}
+
+	// Send request
+	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Write(append(data, '\n')); err != nil {
+		// Can't write, socket might be stale
+		return nil
+	}
+
+	// Try to read response
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		// Can't read response, might not be our daemon
+		return nil
+	}
+
+	// Parse response
+	resp, err := protocol.ParseResponse([]byte(line))
+	if err != nil {
+		// Invalid response, not our daemon
+		return nil
+	}
+
+	// Check if it's a valid response (success or error)
+	if resp.Success || resp.Error != "" {
+		return fmt.Errorf("another bankshot daemon is already running at %s", d.config.Address)
+	}
+
+	// Some other response, but it's still a bankshot daemon
+	return fmt.Errorf("another bankshot daemon is already running at %s", d.config.Address)
 }
 
 // autoDiscoverForwards discovers and registers existing SSH port forwards
