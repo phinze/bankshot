@@ -11,7 +11,7 @@ func TestNew(t *testing.T) {
 	o := New(logger)
 
 	if o == nil {
-		t.Error("New() returned nil")
+		t.Fatal("New() returned nil")
 	}
 	if o.logger == nil {
 		t.Error("New() created Opener with nil logger")

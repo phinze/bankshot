@@ -14,7 +14,7 @@ func TestNew(t *testing.T) {
 	f := New(logger, "ssh")
 
 	if f == nil {
-		t.Error("New() returned nil")
+		t.Fatal("New() returned nil")
 	}
 	if f.logger == nil {
 		t.Error("New() created Forwarder with nil logger")
