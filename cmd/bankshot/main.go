@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -365,7 +366,7 @@ var configCmd = &cobra.Command{
 }
 
 var (
-	wrapConnection string
+	wrapConnection      string
 	wrapMonitorInterval int
 )
 
@@ -410,15 +411,25 @@ Examples:
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		// Create logger for monitor
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelError, // Only show errors by default
+		}))
+		if verbose {
+			logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+				Level: slog.LevelDebug,
+			}))
+		}
+
 		// Start port monitoring
-		portMon := monitor.New(pm.PID(), nil) // We'll handle logging ourselves
+		portMon := monitor.New(pm.PID(), logger)
 		if err := portMon.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start port monitor: %w", err)
 		}
 
 		// Track forwarded ports for cleanup
 		forwardedPorts := make(map[int]bool)
-		
+
 		// Handle port events in background
 		go func() {
 			for event := range portMon.Events() {
@@ -470,7 +481,7 @@ Examples:
 				fmt.Printf("Received signal: %s\n", sig)
 			}
 			pm.Signal(sig)
-			
+
 			// Wait for graceful shutdown
 			select {
 			case <-done:
@@ -511,7 +522,7 @@ func createForwardRequest(remotePort, localPort int, connectionInfo string) prot
 	}
 
 	payload, _ := json.Marshal(forwardReq)
-	
+
 	return protocol.Request{
 		ID:      uuid.New().String(),
 		Type:    protocol.CommandForward,
@@ -528,7 +539,7 @@ func init() {
 	forwardCmd.Flags().StringVarP(&forwardConnection, "connection", "c", "", "SSH connection identifier (e.g., hostname used in ssh command)")
 
 	monitorCmd.Flags().IntVarP(&monitorInterval, "interval", "i", 2, "Update interval in seconds")
-	
+
 	wrapCmd.Flags().StringVarP(&wrapConnection, "connection", "c", "", "SSH connection identifier")
 	wrapCmd.Flags().IntVarP(&wrapMonitorInterval, "poll-interval", "p", 500, "Port monitoring interval in milliseconds")
 
