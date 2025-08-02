@@ -28,10 +28,10 @@ type Request struct {
 
 // Response represents a response from daemon to client
 type Response struct {
-	ID      string          `json:"id"`                // Request ID this responds to
-	Success bool            `json:"success"`           // Whether command succeeded
-	Error   string          `json:"error,omitempty"`   // Error message if failed
-	Data    json.RawMessage `json:"data,omitempty"`    // Response data if succeeded
+	ID      string          `json:"id"`              // Request ID this responds to
+	Success bool            `json:"success"`         // Whether command succeeded
+	Error   string          `json:"error,omitempty"` // Error message if failed
+	Data    json.RawMessage `json:"data,omitempty"`  // Response data if succeeded
 }
 
 // OpenRequest represents a request to open a URL
@@ -41,11 +41,11 @@ type OpenRequest struct {
 
 // ForwardRequest represents a request to forward a port
 type ForwardRequest struct {
-	RemotePort     int    `json:"remote_port"`              // Port on remote machine
-	LocalPort      int    `json:"local_port,omitempty"`     // Port on local machine (0 = same as remote)
-	Host           string `json:"host,omitempty"`           // Remote host (default: localhost)
-	ConnectionInfo string `json:"connection_info"`          // SSH connection identifier (hostname, user@host, etc.)
-	SocketPath     string `json:"socket_path,omitempty"`    // Optional: specific socket path
+	RemotePort     int    `json:"remote_port"`           // Port on remote machine
+	LocalPort      int    `json:"local_port,omitempty"`  // Port on local machine (0 = same as remote)
+	Host           string `json:"host,omitempty"`        // Remote host (default: localhost)
+	ConnectionInfo string `json:"connection_info"`       // SSH connection identifier (hostname, user@host, etc.)
+	SocketPath     string `json:"socket_path,omitempty"` // Optional: specific socket path
 }
 
 // ForwardInfo represents information about an active forward
@@ -101,7 +101,7 @@ func NewSuccessResponse(id string, data interface{}) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal data: %w", err)
 	}
-	
+
 	return &Response{
 		ID:      id,
 		Success: true,

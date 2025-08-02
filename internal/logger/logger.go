@@ -11,17 +11,17 @@ var defaultLogger *slog.Logger
 func init() {
 	// Default to text handler with info level
 	level := slog.LevelInfo
-	
+
 	// Check for quiet mode
 	if os.Getenv("BANKSHOT_QUIET") != "" {
 		level = slog.LevelError
 	}
-	
+
 	// Check for debug mode (overrides quiet)
 	if os.Getenv("BANKSHOT_DEBUG") != "" {
 		level = slog.LevelDebug
 	}
-	
+
 	// Configure handler options
 	opts := &slog.HandlerOptions{
 		Level: level,
@@ -48,7 +48,7 @@ func init() {
 			return a
 		},
 	}
-	
+
 	// Use JSON handler if requested
 	if strings.ToLower(os.Getenv("BANKSHOT_LOG_FORMAT")) == "json" {
 		handler := slog.NewJSONHandler(os.Stderr, opts)
@@ -57,7 +57,7 @@ func init() {
 		handler := slog.NewTextHandler(os.Stderr, opts)
 		defaultLogger = slog.New(handler)
 	}
-	
+
 	slog.SetDefault(defaultLogger)
 }
 

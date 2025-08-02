@@ -203,7 +203,7 @@ func (d *Daemon) handleOpenCommand(req *protocol.Request) *protocol.Response {
 // handleStatusCommand handles the status command
 func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 	uptime := time.Since(d.startTime).Round(time.Second).String()
-	
+
 	status := protocol.StatusResponse{
 		Version:        "0.1.0", // TODO: Use version from build
 		Uptime:         uptime,
@@ -220,7 +220,7 @@ func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 // handleListCommand handles the list forwards command
 func (d *Daemon) handleListCommand(req *protocol.Request) *protocol.Response {
 	forwards := d.forwarder.ListForwards()
-	
+
 	forwardInfos := make([]protocol.ForwardInfo, 0, len(forwards))
 	for _, fwd := range forwards {
 		forwardInfos = append(forwardInfos, protocol.ForwardInfo{
@@ -230,7 +230,7 @@ func (d *Daemon) handleListCommand(req *protocol.Request) *protocol.Response {
 			CreatedAt:  fwd.CreatedAt.Format(time.RFC3339),
 		})
 	}
-	
+
 	list := protocol.ListResponse{
 		Forwards: forwardInfos,
 	}
@@ -277,7 +277,7 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 
 	// Return success
 	resp, _ := protocol.NewSuccessResponse(req.ID, map[string]interface{}{
-		"message": fmt.Sprintf("Forwarded %s:%d to localhost:%d", 
+		"message": fmt.Sprintf("Forwarded %s:%d to localhost:%d",
 			host, forwardReq.RemotePort, localPort),
 		"socket_path": socketPath,
 	})

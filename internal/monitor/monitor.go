@@ -29,9 +29,9 @@ type Monitor struct {
 	debounceTime time.Duration
 	events       chan PortEvent
 	logger       *slog.Logger
-	
-	mu          sync.RWMutex
-	knownPorts  map[int]Port
+
+	mu           sync.RWMutex
+	knownPorts   map[int]Port
 	pendingPorts map[int]time.Time // For debouncing
 }
 
@@ -55,11 +55,11 @@ func (m *Monitor) Start(ctx context.Context) error {
 	if err != nil {
 		m.logger.Warn("failed to get initial ports", slog.String("error", err.Error()))
 	}
-	
+
 	m.mu.Lock()
 	for _, port := range initialPorts {
 		m.knownPorts[port.Port] = port
-		m.logger.Debug("initial port detected", 
+		m.logger.Debug("initial port detected",
 			slog.Int("port", port.Port),
 			slog.String("protocol", port.Protocol),
 		)
@@ -68,10 +68,10 @@ func (m *Monitor) Start(ctx context.Context) error {
 
 	// Start monitoring loop
 	go m.monitorLoop(ctx)
-	
+
 	// Start debounce processor
 	go m.processDebounced(ctx)
-	
+
 	return nil
 }
 
@@ -130,16 +130,16 @@ func (m *Monitor) checkPorts() {
 			// Port closed
 			delete(m.knownPorts, portNum)
 			delete(m.pendingPorts, portNum)
-			
+
 			event := PortEvent{
 				Port:      knownPort,
 				EventType: PortClosed,
 				Timestamp: time.Now(),
 			}
-			
+
 			select {
 			case m.events <- event:
-				m.logger.Info("port closed", 
+				m.logger.Info("port closed",
 					slog.Int("port", portNum),
 					slog.String("protocol", knownPort.Protocol),
 				)
@@ -168,7 +168,7 @@ func (m *Monitor) processDebounced(ctx context.Context) {
 // processPendingPorts checks if pending ports have been stable long enough
 func (m *Monitor) processPendingPorts() {
 	now := time.Now()
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -185,16 +185,16 @@ func (m *Monitor) processPendingPorts() {
 					// Port is confirmed open
 					m.knownPorts[portNum] = port
 					delete(m.pendingPorts, portNum)
-					
+
 					event := PortEvent{
 						Port:      port,
 						EventType: PortOpened,
 						Timestamp: time.Now(),
 					}
-					
+
 					select {
 					case m.events <- event:
-						m.logger.Info("port opened", 
+						m.logger.Info("port opened",
 							slog.Int("port", portNum),
 							slog.String("protocol", port.Protocol),
 						)

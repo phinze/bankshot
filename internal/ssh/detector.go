@@ -23,18 +23,18 @@ func DetectSSHConnection() (*Connection, error) {
 	if sshConn == "" {
 		return nil, fmt.Errorf("not in an SSH session (SSH_CONNECTION not set)")
 	}
-	
+
 	// Parse SSH_CONNECTION: "client_ip client_port server_ip server_port"
 	parts := strings.Fields(sshConn)
 	if len(parts) < 4 {
 		return nil, fmt.Errorf("invalid SSH_CONNECTION format")
 	}
-	
+
 	conn := &Connection{
 		IsSSHSession: true,
 		Port:         parts[3], // We'll use the server port for matching
 	}
-	
+
 	// Try to get more info from SSH_CLIENT if available
 	if sshClient := os.Getenv("SSH_CLIENT"); sshClient != "" {
 		// SSH_CLIENT format: "client_ip client_port server_port"
@@ -43,7 +43,7 @@ func DetectSSHConnection() (*Connection, error) {
 			conn.Port = clientParts[2]
 		}
 	}
-	
+
 	// Try to determine user and host
 	if tty := os.Getenv("SSH_TTY"); tty != "" {
 		// We have a TTY, good indication of interactive SSH
@@ -53,18 +53,18 @@ func DetectSSHConnection() (*Connection, error) {
 			conn.User = os.Getenv("LOGNAME")
 		}
 	}
-	
+
 	// Try to find the control socket
 	controlPath, err := findControlSocket(conn)
 	if err != nil {
 		return conn, fmt.Errorf("SSH session detected but no ControlMaster found: %w", err)
 	}
-	
+
 	conn.ControlPath = controlPath
-	
+
 	// Extract host from control path if possible
 	conn.Host = extractHostFromPath(controlPath)
-	
+
 	return conn, nil
 }
 
@@ -76,7 +76,7 @@ func findControlSocket(conn *Connection) (string, error) {
 			return path, nil
 		}
 	}
-	
+
 	// Common ControlPath patterns
 	patterns := []string{
 		"/tmp/ssh-*@*:%s",
@@ -87,7 +87,7 @@ func findControlSocket(conn *Connection) (string, error) {
 		"~/.ssh/control-*@*:%s",
 		"~/.ssh/sockets/*@*:%s",
 	}
-	
+
 	// Also check without port
 	patternsNoPort := []string{
 		"/tmp/ssh-*@*",
@@ -97,12 +97,12 @@ func findControlSocket(conn *Connection) (string, error) {
 		"~/.ssh/control-*@*",
 		"~/.ssh/sockets/*@*",
 	}
-	
+
 	// Try patterns with port first
 	for _, pattern := range patterns {
 		path := fmt.Sprintf(pattern, conn.Port)
 		path = expandPath(path)
-		
+
 		matches, err := filepath.Glob(path)
 		if err == nil && len(matches) > 0 {
 			// Check if it's a socket
@@ -113,11 +113,11 @@ func findControlSocket(conn *Connection) (string, error) {
 			}
 		}
 	}
-	
+
 	// Try patterns without port
 	for _, pattern := range patternsNoPort {
 		path := expandPath(pattern)
-		
+
 		matches, err := filepath.Glob(path)
 		if err == nil && len(matches) > 0 {
 			// Check if it's a socket
@@ -128,7 +128,7 @@ func findControlSocket(conn *Connection) (string, error) {
 			}
 		}
 	}
-	
+
 	// Try to find any socket in common locations
 	searchDirs := []string{
 		"/tmp",
@@ -136,7 +136,7 @@ func findControlSocket(conn *Connection) (string, error) {
 		expandPath("~/.ssh/sockets"),
 		"/var/run/user/" + os.Getenv("UID"),
 	}
-	
+
 	for _, dir := range searchDirs {
 		if sockets := findSocketsInDir(dir); len(sockets) > 0 {
 			// Try to validate each socket
@@ -147,7 +147,7 @@ func findControlSocket(conn *Connection) (string, error) {
 			}
 		}
 	}
-	
+
 	return "", fmt.Errorf("no ControlMaster socket found")
 }
 
@@ -163,19 +163,19 @@ func isSocket(path string) bool {
 // findSocketsInDir finds all Unix sockets in a directory
 func findSocketsInDir(dir string) []string {
 	var sockets []string
-	
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return sockets
 	}
-	
+
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
 		if isSocket(path) {
 			sockets = append(sockets, path)
 		}
 	}
-	
+
 	return sockets
 }
 
@@ -193,21 +193,21 @@ func expandPath(path string) string {
 // extractHostFromPath tries to extract hostname from control socket path
 func extractHostFromPath(path string) string {
 	base := filepath.Base(path)
-	
+
 	// Common patterns: user@host:port or user@host
 	if idx := strings.Index(base, "@"); idx > 0 {
 		rest := base[idx+1:]
-		
+
 		// First remove any file extensions (.sock, etc)
 		rest = strings.TrimSuffix(rest, ".sock")
-		
+
 		// Then extract host from host:port format
 		if colonIdx := strings.Index(rest, ":"); colonIdx > 0 {
 			return rest[:colonIdx]
 		}
-		
+
 		return rest
 	}
-	
+
 	return ""
 }

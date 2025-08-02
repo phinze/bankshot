@@ -13,15 +13,15 @@ import (
 type Config struct {
 	// Network type: "unix" or "tcp"
 	Network string `yaml:"network"`
-	
+
 	// Address to listen on
 	// For unix: socket path (default: ~/.bankshot.sock)
 	// For tcp: host:port (default: 127.0.0.1:9999)
 	Address string `yaml:"address"`
-	
+
 	// LogLevel: debug, info, warn, error
 	LogLevel string `yaml:"log_level"`
-	
+
 	// SSHCommand is the path to ssh binary
 	SSHCommand string `yaml:"ssh_command"`
 }
@@ -39,14 +39,14 @@ func DefaultConfig() *Config {
 // Load loads configuration from file
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
-	
+
 	// If no path specified, try default locations
 	if path == "" {
 		home, err := homedir.Dir()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get home directory: %w", err)
 		}
-		
+
 		// Try ~/.config/bankshot/config.yaml first
 		path = filepath.Join(home, ".config", "bankshot", "config.yaml")
 		if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -54,7 +54,7 @@ func Load(path string) (*Config, error) {
 			return cfg, nil
 		}
 	}
-	
+
 	// Read config file
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -64,12 +64,12 @@ func Load(path string) (*Config, error) {
 		}
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
-	
+
 	// Parse YAML
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
-	
+
 	return cfg, nil
 }
 
@@ -82,7 +82,7 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("invalid network type: %s (must be 'unix' or 'tcp')", c.Network)
 	}
-	
+
 	// Expand home directory in address if unix socket
 	if c.Network == "unix" {
 		expanded, err := homedir.Expand(c.Address)
@@ -91,7 +91,7 @@ func (c *Config) Validate() error {
 		}
 		c.Address = expanded
 	}
-	
+
 	// Validate log level
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":
@@ -99,6 +99,6 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("invalid log level: %s", c.LogLevel)
 	}
-	
+
 	return nil
 }

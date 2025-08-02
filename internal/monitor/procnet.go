@@ -25,7 +25,7 @@ func parseProcNet(path string, protocol string) ([]Port, error) {
 
 	var ports []Port
 	scanner := bufio.NewScanner(file)
-	
+
 	// Skip header line
 	// Header: sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
 	scanner.Scan()
@@ -83,7 +83,7 @@ func parseState(hexState string) string {
 		"0A": "LISTEN",
 		"0B": "CLOSING",
 	}
-	
+
 	if state, ok := states[hexState]; ok {
 		return state
 	}

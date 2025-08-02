@@ -20,10 +20,10 @@ func New(command string, args []string) *Manager {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	// Inherit environment
 	cmd.Env = os.Environ()
-	
+
 	return &Manager{
 		cmd:  cmd,
 		done: make(chan struct{}),
@@ -35,10 +35,10 @@ func (m *Manager) Start() error {
 	if err := m.cmd.Start(); err != nil {
 		return err
 	}
-	
+
 	// Set up signal forwarding
 	go m.forwardSignals()
-	
+
 	return nil
 }
 
@@ -46,7 +46,7 @@ func (m *Manager) Start() error {
 func (m *Manager) Wait() (int, error) {
 	err := m.cmd.Wait()
 	close(m.done)
-	
+
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
@@ -55,7 +55,7 @@ func (m *Manager) Wait() (int, error) {
 		}
 		return 1, err
 	}
-	
+
 	return 0, nil
 }
 
@@ -70,14 +70,14 @@ func (m *Manager) PID() int {
 // forwardSignals forwards common signals to the child process
 func (m *Manager) forwardSignals() {
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, 
+	signal.Notify(sigChan,
 		syscall.SIGTERM,
 		syscall.SIGINT,
 		syscall.SIGHUP,
 		syscall.SIGUSR1,
 		syscall.SIGUSR2,
 	)
-	
+
 	for {
 		select {
 		case sig := <-sigChan:
@@ -96,19 +96,19 @@ func (m *Manager) Stop(ctx context.Context) error {
 	if m.cmd.Process == nil {
 		return nil
 	}
-	
+
 	// Send SIGTERM first
 	if err := m.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		return err
 	}
-	
+
 	// Wait for process to exit or context to timeout
 	done := make(chan error, 1)
 	go func() {
 		_, err := m.Wait()
 		done <- err
 	}()
-	
+
 	select {
 	case <-ctx.Done():
 		// Force kill if context times out
