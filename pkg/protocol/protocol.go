@@ -13,6 +13,8 @@ const (
 	CommandOpen CommandType = "open"
 	// CommandForward requests a port forward
 	CommandForward CommandType = "forward"
+	// CommandUnforward removes a port forward
+	CommandUnforward CommandType = "unforward"
 	// CommandStatus gets daemon status
 	CommandStatus CommandType = "status"
 	// CommandList lists active forwards
@@ -46,6 +48,13 @@ type ForwardRequest struct {
 	Host           string `json:"host,omitempty"`        // Remote host (default: localhost)
 	ConnectionInfo string `json:"connection_info"`       // SSH connection identifier (hostname, user@host, etc.)
 	SocketPath     string `json:"socket_path,omitempty"` // Optional: specific socket path
+}
+
+// UnforwardRequest represents a request to remove a port forward
+type UnforwardRequest struct {
+	RemotePort     int    `json:"remote_port"`     // Port on remote machine
+	Host           string `json:"host,omitempty"`  // Remote host (default: localhost)
+	ConnectionInfo string `json:"connection_info"` // SSH connection identifier
 }
 
 // ForwardInfo represents information about an active forward

@@ -73,6 +73,9 @@ bankshot open https://github.com
 # Forward a port
 bankshot forward 8080
 
+# Remove a port forward
+bankshot unforward 8080
+
 # Check status
 bankshot status
 

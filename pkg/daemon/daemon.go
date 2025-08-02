@@ -203,6 +203,8 @@ func (d *Daemon) handleCommand(req *protocol.Request) *protocol.Response {
 		return d.handleListCommand(req)
 	case protocol.CommandForward:
 		return d.handleForwardCommand(req)
+	case protocol.CommandUnforward:
+		return d.handleUnforwardCommand(req)
 	default:
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("unknown command type: %s", req.Type))
 	}
@@ -341,6 +343,33 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 		"message": fmt.Sprintf("Forwarded %s:%d to localhost:%d",
 			host, forwardReq.RemotePort, localPort),
 		"socket_path": socketPath,
+	})
+	return resp
+}
+
+// handleUnforwardCommand handles the port unforward command
+func (d *Daemon) handleUnforwardCommand(req *protocol.Request) *protocol.Response {
+	// Parse payload
+	var unforwardReq protocol.UnforwardRequest
+	if err := json.Unmarshal(req.Payload, &unforwardReq); err != nil {
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid unforward request format: %w", err))
+	}
+
+	// Default values
+	host := unforwardReq.Host
+	if host == "" {
+		host = "localhost"
+	}
+
+	// Remove forward
+	if err := d.forwarder.RemoveForward(unforwardReq.ConnectionInfo, unforwardReq.RemotePort, host); err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+
+	// Return success
+	resp, _ := protocol.NewSuccessResponse(req.ID, map[string]interface{}{
+		"message": fmt.Sprintf("Removed forward for %s:%d",
+			host, unforwardReq.RemotePort),
 	})
 	return resp
 }
