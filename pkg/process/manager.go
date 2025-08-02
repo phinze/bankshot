@@ -23,6 +23,11 @@ func New(command string, args []string) *Manager {
 
 	// Inherit environment
 	cmd.Env = os.Environ()
+	
+	// Set BROWSER to use bankshot open for automatic browser forwarding
+	// This allows tools that respect the BROWSER env var to automatically
+	// open URLs through bankshot
+	cmd.Env = append(cmd.Env, "BROWSER=bankshot open")
 
 	return &Manager{
 		cmd:  cmd,

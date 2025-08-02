@@ -97,6 +97,13 @@ $ bankshot forward 3000
 $ bankshot forward 8080:9090
 ```
 
+### Automatic Browser Forwarding
+The `wrap` command sets `BROWSER=bankshot open`, so tools that respect the BROWSER environment variable will automatically open URLs through bankshot:
+```bash
+# Any browser opens from the wrapped command will use bankshot
+$ bankshot wrap -- your-dev-tool
+```
+
 ### Opening URLs
 ```bash
 bankshot open https://github.com
