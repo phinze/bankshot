@@ -68,6 +68,40 @@ If the daemon isn't responding:
    ls -la ~/.bankshot.sock
    ```
 
+## Nix Installation
+
+### Using Nix Flakes
+
+If you have Nix with flakes enabled:
+
+```bash
+# Run bankshot directly without installing
+nix run github:phinze/bankshot -- --version
+
+# Install to your profile
+nix profile install github:phinze/bankshot
+
+# Or add to your NixOS/Home Manager configuration
+{
+  inputs.bankshot.url = "github:phinze/bankshot";
+  # ... in your system packages:
+  environment.systemPackages = [ inputs.bankshot.packages.${system}.default ];
+}
+```
+
+### For Development
+
+```bash
+# Enter development shell with all build dependencies
+nix develop github:phinze/bankshot
+
+# Or if you've cloned the repo
+cd bankshot
+nix develop
+```
+
+The Nix package includes both `bankshot` and `bankshotd` binaries with consistent build flags matching the official releases.
+
 ## Manual Installation
 
 ### From Source
