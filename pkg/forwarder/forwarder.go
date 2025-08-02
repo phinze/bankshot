@@ -314,7 +314,7 @@ func (f *Forwarder) CleanupForSocket(socketPath string) {
 	f.mu.RUnlock()
 
 	for _, item := range toRemove {
-		f.RemoveForward(item.connectionInfo, item.port, item.host)
+		_ = f.RemoveForward(item.connectionInfo, item.port, item.host)
 	}
 }
 
@@ -339,7 +339,7 @@ func (f *Forwarder) CleanupForConnection(connectionInfo string) {
 	f.mu.RUnlock()
 
 	for _, item := range toRemove {
-		f.RemoveForward(connectionInfo, item.port, item.host)
+		_ = f.RemoveForward(connectionInfo, item.port, item.host)
 	}
 }
 

@@ -15,8 +15,14 @@ func main() {
 	fmt.Println("Starting HTTP server on :9090")
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Hello from bankshot demo server!\n")
-		fmt.Fprintf(w, "Time: %s\n", time.Now().Format(time.RFC3339))
+		if _, err := fmt.Fprintf(w, "Hello from bankshot demo server!\n"); err != nil {
+			log.Printf("Failed to write response: %v", err)
+			return
+		}
+		if _, err := fmt.Fprintf(w, "Time: %s\n", time.Now().Format(time.RFC3339)); err != nil {
+			log.Printf("Failed to write response: %v", err)
+			return
+		}
 		log.Printf("Request from %s", r.RemoteAddr)
 	})
 

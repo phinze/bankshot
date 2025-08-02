@@ -547,13 +547,21 @@ Examples:
 			if verbose {
 				fmt.Printf("Received signal: %s\n", sig)
 			}
-			pm.Signal(sig)
+			if err := pm.Signal(sig); err != nil {
+				if verbose {
+					fmt.Printf("Failed to signal process: %v\n", err)
+				}
+			}
 
 			// Wait for graceful shutdown
 			select {
 			case <-done:
 			case <-time.After(5 * time.Second):
-				pm.Stop(context.Background())
+				if err := pm.Stop(context.Background()); err != nil {
+					if verbose {
+						fmt.Printf("Failed to stop process: %v\n", err)
+					}
+				}
 				<-done
 			}
 		}
@@ -682,7 +690,9 @@ func sendRequest(req *protocol.Request) (*protocol.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	// Send request
 	reqData, err := json.Marshal(req)

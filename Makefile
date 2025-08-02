@@ -37,9 +37,9 @@ build:
 test:
 	go test -v ./...
 
-# Run linter (excluding noisy errcheck)
+# Run linter
 lint:
-	golangci-lint run --disable errcheck
+	golangci-lint run
 
 # Build for all platforms
 build-all:

@@ -87,7 +87,7 @@ func (m *Manager) forwardSignals() {
 		select {
 		case sig := <-sigChan:
 			if m.cmd.Process != nil {
-				m.cmd.Process.Signal(sig)
+				_ = m.cmd.Process.Signal(sig)
 			}
 		case <-m.done:
 			signal.Stop(sigChan)

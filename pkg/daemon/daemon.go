@@ -149,7 +149,9 @@ func (d *Daemon) acceptConnections() {
 
 // handleConnection handles a single connection
 func (d *Daemon) handleConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	remoteAddr := conn.RemoteAddr().String()
 	d.logger.Debug("New connection", "remote", remoteAddr)
@@ -447,7 +449,9 @@ func (d *Daemon) checkExistingDaemon() error {
 		d.logger.Debug("Found stale socket, will clean up", "address", d.config.Address)
 		return nil
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	// Try to send a status request to verify it's actually a bankshot daemon
 	req := &protocol.Request{
@@ -462,14 +466,20 @@ func (d *Daemon) checkExistingDaemon() error {
 	}
 
 	// Send request
-	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		// Can't set deadline, assume connection is not valid
+		return nil
+	}
 	if _, err := conn.Write(append(data, '\n')); err != nil {
 		// Can't write, socket might be stale
 		return nil
 	}
 
 	// Try to read response
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		// Can't set deadline, assume connection is not valid
+		return nil
+	}
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {

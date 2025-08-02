@@ -23,8 +23,12 @@ func TestSocketCommunication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create listener: %v", err)
 	}
-	defer listener.Close()
-	defer os.Remove(socketPath)
+	defer func() {
+		_ = listener.Close()
+	}()
+	defer func() {
+		_ = os.Remove(socketPath)
+	}()
 
 	// Handle connections in background
 	go func() {
@@ -43,7 +47,9 @@ func TestSocketCommunication(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to connect: %v", err)
 		}
-		defer conn.Close()
+		defer func() {
+			_ = conn.Close()
+		}()
 
 		// Send request
 		req := &protocol.Request{
@@ -52,7 +58,10 @@ func TestSocketCommunication(t *testing.T) {
 		}
 
 		data, _ := json.Marshal(req)
-		conn.Write(append(data, '\n'))
+		if _, err := conn.Write(append(data, '\n')); err != nil {
+			t.Errorf("Failed to write request: %v", err)
+			return
+		}
 
 		// Read response
 		resp := make([]byte, 1024)
@@ -73,7 +82,9 @@ func TestSocketCommunication(t *testing.T) {
 }
 
 func handleTestConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	// Read request
 	buf := make([]byte, 1024)
@@ -97,7 +108,7 @@ func handleTestConnection(conn net.Conn) {
 
 	// Send response
 	data, _ := json.Marshal(resp)
-	conn.Write(data)
+	_, _ = conn.Write(data)
 }
 
 // TestProtocolMarshaling tests protocol marshaling/unmarshaling
@@ -167,8 +178,12 @@ func TestConcurrentConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create listener: %v", err)
 	}
-	defer listener.Close()
-	defer os.Remove(socketPath)
+	defer func() {
+		_ = listener.Close()
+	}()
+	defer func() {
+		_ = os.Remove(socketPath)
+	}()
 
 	// Handle connections
 	go func() {
@@ -193,7 +208,9 @@ func TestConcurrentConnections(t *testing.T) {
 				done <- false
 				return
 			}
-			defer conn.Close()
+			defer func() {
+				_ = conn.Close()
+			}()
 
 			// Send request
 			req := &protocol.Request{
@@ -202,7 +219,11 @@ func TestConcurrentConnections(t *testing.T) {
 			}
 
 			data, _ := json.Marshal(req)
-			conn.Write(append(data, '\n'))
+			if _, err := conn.Write(append(data, '\n')); err != nil {
+				t.Errorf("Connection %d failed to write: %v", id, err)
+				done <- false
+				return
+			}
 
 			// Read response
 			resp := make([]byte, 1024)

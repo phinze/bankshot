@@ -21,7 +21,9 @@ func parseProcNet(path string, protocol string) ([]Port, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	var ports []Port
 	scanner := bufio.NewScanner(file)
