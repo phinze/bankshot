@@ -97,44 +97,44 @@ release:
   name_template: "{{.ProjectName}}-v{{.Version}}"
   header: |
     ## Bankshot {{.Version}} ({{.Date}})
-    
+
     Automatic SSH port forwarding and browser opening for remote development.
   footer: |
     ## Installation
-    
+
     ### Homebrew
     ```bash
     brew install phinze/bankshot/bankshot
     ```
-    
+
     ### Manual
     Download the appropriate archive for your platform and extract the binaries.
-    
+
     **Full Changelog**: https://github.com/phinze/bankshot/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-homebrew_casks:
+brews:
   - name: bankshot
     repository:
       owner: phinze
       name: homebrew-bankshot
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
     homepage: "https://github.com/phinze/bankshot"
     description: "Automatic SSH port forwarding and browser opening for remote development"
-    binary: bankshot
-    # We need to use a custom block to install the second binary
-    custom_block: |
-      binary "bankshotd"
-    # Service configuration for bankshotd daemon
+    license: "MIT"
+    test: |
+      system "#{bin}/bankshot", "--version"
+    install: |
+      bin.install "bankshot"
+      bin.install "bankshotd"
     service: |
       run [opt_bin/"bankshotd"]
       keep_alive true
       log_path var/"log/bankshotd.log"
       error_log_path var/"log/bankshotd.error.log"
-    # Since the binaries aren't signed/notarized, we need to remove quarantine
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bankshot"]
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bankshotd"]
-          end
+    caveats: |
+      To run bankshotd as a background service:
+        brew services start bankshot
+
+      Or run it manually:
+        bankshotd
