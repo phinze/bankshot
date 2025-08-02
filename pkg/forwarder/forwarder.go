@@ -5,21 +5,19 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/mitchellh/go-homedir"
 )
 
 // Forward represents an active port forward
 type Forward struct {
-	RemotePort int
-	LocalPort  int
-	Host       string
-	SocketPath string
-	CreatedAt  time.Time
+	RemotePort     int
+	LocalPort      int
+	Host           string
+	SocketPath     string
+	ConnectionInfo string // SSH connection target (e.g., hostname)
+	CreatedAt      time.Time
 }
 
 // Forwarder manages SSH port forwards
@@ -40,7 +38,7 @@ func New(logger *slog.Logger, sshCmd string) *Forwarder {
 }
 
 // AddForward creates a new port forward
-func (f *Forwarder) AddForward(socketPath string, remotePort, localPort int, host string) error {
+func (f *Forwarder) AddForward(socketPath string, connectionInfo string, remotePort, localPort int, host string) error {
 	if host == "" {
 		host = "localhost"
 	}
@@ -66,13 +64,15 @@ func (f *Forwarder) AddForward(socketPath string, remotePort, localPort int, hos
 	cmd := exec.Command(f.sshCmd,
 		"-O", "forward",
 		"-L", fmt.Sprintf("%d:%s:%d", localPort, host, remotePort),
-		socketPath,
+		connectionInfo,
 	)
 
 	f.logger.Info("Executing port forward",
 		"command", strings.Join(cmd.Args, " "),
 		"remote", fmt.Sprintf("%s:%d", host, remotePort),
 		"local", localPort,
+		"socketPath", socketPath,
+		"connectionInfo", connectionInfo,
 	)
 
 	output, err := cmd.CombinedOutput()
@@ -82,11 +82,12 @@ func (f *Forwarder) AddForward(socketPath string, remotePort, localPort int, hos
 
 	// Store forward info
 	forward := &Forward{
-		RemotePort: remotePort,
-		LocalPort:  localPort,
-		Host:       host,
-		SocketPath: socketPath,
-		CreatedAt:  time.Now(),
+		RemotePort:     remotePort,
+		LocalPort:      localPort,
+		Host:           host,
+		SocketPath:     socketPath,
+		ConnectionInfo: connectionInfo,
+		CreatedAt:      time.Now(),
 	}
 
 	f.mu.Lock()
@@ -102,7 +103,7 @@ func (f *Forwarder) AddForward(socketPath string, remotePort, localPort int, hos
 }
 
 // RemoveForward removes a port forward
-func (f *Forwarder) RemoveForward(socketPath string, remotePort int, host string) error {
+func (f *Forwarder) RemoveForward(connectionInfo string, remotePort int, host string) error {
 	if host == "" {
 		host = "localhost"
 	}
@@ -123,7 +124,7 @@ func (f *Forwarder) RemoveForward(socketPath string, remotePort int, host string
 	cmd := exec.Command(f.sshCmd,
 		"-O", "cancel",
 		"-L", fmt.Sprintf("%d:%s:%d", localPort, host, remotePort),
-		socketPath,
+		connectionInfo,
 	)
 
 	f.logger.Info("Canceling port forward",
@@ -163,50 +164,53 @@ func (f *Forwarder) ListForwards() []*Forward {
 
 // FindControlSocket finds the SSH ControlMaster socket for a given connection
 func FindControlSocket(connectionInfo string) (string, error) {
-	// Parse connection info (could be hostname, user@host, etc.)
-	// For now, we'll look for common socket patterns
+	// First, verify the connection is active
+	checkCmd := exec.Command("ssh", "-O", "check", connectionInfo)
+	if err := checkCmd.Run(); err != nil {
+		return "", fmt.Errorf("no active SSH connection to %s", connectionInfo)
+	}
 
-	home, err := homedir.Dir()
+	// Use ssh -G to get the actual configuration
+	cmd := exec.Command("ssh", "-G", connectionInfo)
+	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", fmt.Errorf("failed to get SSH config for %s: %w", connectionInfo, err)
 	}
 
-	// Common ControlPath patterns
-	patterns := []string{
-		// Default OpenSSH pattern
-		filepath.Join(home, ".ssh", "master-*"),
-		// Common custom patterns
-		filepath.Join(home, ".ssh", "sockets", "*"),
-		filepath.Join(home, ".ssh", "control", "*"),
-		// Look for specific connection
-		filepath.Join(home, ".ssh", fmt.Sprintf("*%s*", connectionInfo)),
-	}
-
-	for _, pattern := range patterns {
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			continue
-		}
-
-		for _, match := range matches {
-			// Check if it's a socket
-			info, err := os.Stat(match)
-			if err != nil {
-				continue
-			}
-
-			// Check if it's a socket file
-			if info.Mode()&os.ModeSocket != 0 {
-				// Verify it's an active SSH control socket
-				cmd := exec.Command("ssh", "-O", "check", match)
-				if err := cmd.Run(); err == nil {
-					return match, nil
-				}
-			}
+	// Parse the output to find ControlPath
+	var controlPath string
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		parts := strings.Fields(line)
+		if len(parts) >= 2 && parts[0] == "controlpath" {
+			controlPath = strings.Join(parts[1:], " ")
+			break
 		}
 	}
 
-	return "", fmt.Errorf("no SSH ControlMaster socket found for connection: %s", connectionInfo)
+	if controlPath == "" {
+		return "", fmt.Errorf("no ControlPath configured for %s", connectionInfo)
+	}
+
+	// The control path might contain % tokens that need to be expanded
+	// ssh -G should have already expanded them, but let's verify the socket exists
+	if _, err := os.Stat(controlPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("control socket does not exist at %s", controlPath)
+		}
+		return "", fmt.Errorf("failed to stat control socket: %w", err)
+	}
+
+	// Verify it's actually a socket
+	info, err := os.Stat(controlPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat control socket: %w", err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return "", fmt.Errorf("path %s exists but is not a socket", controlPath)
+	}
+
+	return controlPath, nil
 }
 
 // CleanupForSocket removes all forwards for a specific socket

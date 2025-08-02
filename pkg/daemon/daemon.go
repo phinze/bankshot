@@ -247,7 +247,10 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 	// Parse payload
 	var forwardReq protocol.ForwardRequest
 	if err := json.Unmarshal(req.Payload, &forwardReq); err != nil {
-		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid payload: %w", err))
+		d.logger.Error("Failed to parse forward request",
+			"error", err,
+			"payload", string(req.Payload))
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid forward request format: %w", err))
 	}
 
 	// Find socket path if not provided
@@ -261,7 +264,7 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 	}
 
 	// Add forward
-	if err := d.forwarder.AddForward(socketPath, forwardReq.RemotePort, forwardReq.LocalPort, forwardReq.Host); err != nil {
+	if err := d.forwarder.AddForward(socketPath, forwardReq.ConnectionInfo, forwardReq.RemotePort, forwardReq.LocalPort, forwardReq.Host); err != nil {
 		return protocol.NewErrorResponse(req.ID, err)
 	}
 
