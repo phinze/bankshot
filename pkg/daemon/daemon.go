@@ -18,6 +18,7 @@ import (
 	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/forwarder"
 	"github.com/phinze/bankshot/pkg/opener"
+	"github.com/phinze/bankshot/version"
 	"github.com/phinze/bankshot/pkg/protocol"
 )
 
@@ -273,7 +274,7 @@ func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 	}
 
 	status := protocol.StatusResponse{
-		Version:        "0.1.0", // TODO: Use version from build
+		Version:        version.GetVersion(),
 		Uptime:         uptime,
 		ActiveForwards: len(forwards),
 		Connections:    connections,

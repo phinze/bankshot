@@ -19,6 +19,7 @@ import (
 	"github.com/phinze/bankshot/pkg/monitor"
 	"github.com/phinze/bankshot/pkg/process"
 	"github.com/phinze/bankshot/pkg/protocol"
+	"github.com/phinze/bankshot/version"
 	"github.com/spf13/cobra"
 )
 
@@ -35,6 +36,7 @@ var rootCmd = &cobra.Command{
 - Open URLs in your local browser from remote sessions
 - Manage SSH port forwards dynamically
 - Check daemon status`,
+	Version:      version.GetFullVersion(),
 	SilenceUsage: true,
 }
 

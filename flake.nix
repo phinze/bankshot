@@ -20,6 +20,7 @@
             go-tools
             golangci-lint
             delve
+            goreleaser
           ];
 
           shellHook = ''

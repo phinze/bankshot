@@ -7,13 +7,8 @@ import (
 
 	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/daemon"
+	"github.com/phinze/bankshot/version"
 	"github.com/spf13/cobra"
-)
-
-var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
 )
 
 func main() {
@@ -35,7 +30,7 @@ func newRootCmd() *cobra.Command {
 		Long: `Bankshot daemon runs on your local machine and listens for commands
 from remote SSH sessions. It can open URLs in your local browser and
 manage SSH port forwards dynamically.`,
-		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
+		Version: version.GetFullVersion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Set up logging
 			logLevel := slog.LevelInfo
@@ -49,9 +44,9 @@ manage SSH port forwards dynamically.`,
 			slog.SetDefault(logger)
 
 			slog.Info("Starting bankshot daemon",
-				"version", version,
-				"commit", commit,
-				"date", date,
+				"version", version.GetVersion(),
+				"commit", version.Commit,
+				"date", version.Date,
 			)
 
 			// Load configuration

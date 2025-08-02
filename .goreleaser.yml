@@ -1,0 +1,134 @@
+# This is an example .goreleaser.yml file with some sensible defaults.
+# Make sure to check the documentation at https://goreleaser.com
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: bankshot
+    binary: bankshot
+    main: ./cmd/bankshot
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/phinze/bankshot/version.Version={{.Version}}
+      - -X github.com/phinze/bankshot/version.Commit={{.Commit}}
+      - -X github.com/phinze/bankshot/version.Date={{.Date}}
+      - -X github.com/phinze/bankshot/version.BuiltBy=goreleaser
+
+  - id: bankshotd
+    binary: bankshotd
+    main: ./cmd/bankshotd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/phinze/bankshot/version.Version={{.Version}}
+      - -X github.com/phinze/bankshot/version.Commit={{.Commit}}
+      - -X github.com/phinze/bankshot/version.Date={{.Date}}
+      - -X github.com/phinze/bankshot/version.BuiltBy=goreleaser
+
+archives:
+  - id: default
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    formats: ["tar.gz"]
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+      - docs/*
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^build:'
+      - '^chore:'
+      - '^style:'
+      - '^refactor:'
+      - '^perf:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: '🚀 Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: '🐛 Bug Fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: phinze
+    name: bankshot
+  name_template: "{{.ProjectName}}-v{{.Version}}"
+  header: |
+    ## Bankshot {{.Version}} ({{.Date}})
+    
+    Automatic SSH port forwarding and browser opening for remote development.
+  footer: |
+    ## Installation
+    
+    ### Homebrew
+    ```bash
+    brew install phinze/bankshot/bankshot
+    ```
+    
+    ### Manual
+    Download the appropriate archive for your platform and extract the binaries.
+    
+    **Full Changelog**: https://github.com/phinze/bankshot/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+homebrew_casks:
+  - name: bankshot
+    repository:
+      owner: phinze
+      name: homebrew-bankshot
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/phinze/bankshot"
+    description: "Automatic SSH port forwarding and browser opening for remote development"
+    # We need to use a custom block to install both binaries
+    custom_block: |
+      binary "bankshot"
+      binary "bankshotd"
+    # Since the binaries aren't signed/notarized, we need to remove quarantine
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bankshot"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bankshotd"]
+          end
