@@ -124,6 +124,12 @@ homebrew_casks:
     # We need to use a custom block to install the second binary
     custom_block: |
       binary "bankshotd"
+    # Service configuration for bankshotd daemon
+    service: |
+      run [opt_bin/"bankshotd"]
+      keep_alive true
+      log_path var/"log/bankshotd.log"
+      error_log_path var/"log/bankshotd.error.log"
     # Since the binaries aren't signed/notarized, we need to remove quarantine
     hooks:
       post:
