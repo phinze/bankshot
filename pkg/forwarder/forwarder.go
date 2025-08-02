@@ -170,6 +170,10 @@ func (f *Forwarder) RemoveForward(connectionInfo string, remotePort int, host st
 	f.mu.RUnlock()
 
 	// Execute SSH cancel command
+	// WARNING: OpenSSH has a limitation where -O cancel will cancel ALL remote
+	// socket forwards on the control socket, not just the specified one. This
+	// includes any Unix socket forwards (like .bankshot.sock). See below for our
+	// workaround to address this.
 	cmd := exec.Command(f.sshCmd,
 		"-O", "cancel",
 		"-L", fmt.Sprintf("%d:%s:%d", localPort, host, remotePort),
@@ -195,6 +199,27 @@ func (f *Forwarder) RemoveForward(connectionInfo string, remotePort int, host st
 	f.mu.Lock()
 	delete(f.forwards, key)
 	f.mu.Unlock()
+
+	// Re-establish all configured forwards (including Unix socket forwards)
+	// This is necessary because SSH -O cancel removes ALL socket remote forwards
+	reestablishCmd := exec.Command(f.sshCmd, "-O", "forward", connectionInfo)
+
+	f.logger.Info("Re-establishing configured forwards after cancel",
+		"command", strings.Join(reestablishCmd.Args, " "),
+	)
+
+	reestablishOutput, reestablishErr := reestablishCmd.CombinedOutput()
+	if reestablishErr != nil {
+		f.logger.Error("Failed to re-establish forwards",
+			"error", reestablishErr,
+			"output", string(reestablishOutput),
+		)
+		// Don't fail the operation - the forward was still removed
+	} else {
+		f.logger.Info("Successfully re-established configured forwards",
+			"output", string(reestablishOutput),
+		)
+	}
 
 	return nil
 }
