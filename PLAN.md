@@ -100,12 +100,12 @@ When working on remote servers via SSH, these workflows fail because:
 - [x] Track active forwards per connection
 - [x] Automatic cleanup on disconnect
 
-### Phase 4: CLI Tool
-- [ ] Create `bankshot` CLI client
-- [ ] Implement socket communication
-- [ ] `open` command compatibility mode
-- [ ] Port forward command interface
-- [ ] Configuration and socket discovery
+### Phase 4: CLI Tool ✓
+- [x] Create `bankshot` CLI client
+- [x] Implement socket communication
+- [x] `open` command compatibility mode
+- [x] Port forward command interface
+- [x] Configuration and socket discovery
 
 ### Phase 5: Homebrew Integration
 - [ ] Create Homebrew formula
