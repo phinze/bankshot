@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/phinze/bankshot/pkg/config"
+	"github.com/phinze/bankshot/pkg/forwarder"
 	"github.com/phinze/bankshot/pkg/opener"
 	"github.com/phinze/bankshot/pkg/protocol"
 )
@@ -29,6 +30,7 @@ type Daemon struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	opener    *opener.Opener
+	forwarder *forwarder.Forwarder
 	startTime time.Time
 }
 
@@ -41,6 +43,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		ctx:       ctx,
 		cancel:    cancel,
 		opener:    opener.New(logger),
+		forwarder: forwarder.New(logger, cfg.SSHCommand),
 		startTime: time.Now(),
 	}
 }
@@ -171,8 +174,7 @@ func (d *Daemon) handleCommand(req *protocol.Request) *protocol.Response {
 	case protocol.CommandList:
 		return d.handleListCommand(req)
 	case protocol.CommandForward:
-		// TODO: Implement port forwarding
-		return protocol.NewErrorResponse(req.ID, fmt.Errorf("port forwarding not yet implemented"))
+		return d.handleForwardCommand(req)
 	default:
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("unknown command type: %s", req.Type))
 	}
@@ -205,7 +207,7 @@ func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 	status := protocol.StatusResponse{
 		Version:        "0.1.0", // TODO: Use version from build
 		Uptime:         uptime,
-		ActiveForwards: 0, // TODO: Track active forwards
+		ActiveForwards: len(d.forwarder.ListForwards()),
 	}
 
 	resp, err := protocol.NewSuccessResponse(req.ID, status)
@@ -217,15 +219,68 @@ func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 
 // handleListCommand handles the list forwards command
 func (d *Daemon) handleListCommand(req *protocol.Request) *protocol.Response {
-	// TODO: Implement when we have port forwarding
+	forwards := d.forwarder.ListForwards()
+	
+	forwardInfos := make([]protocol.ForwardInfo, 0, len(forwards))
+	for _, fwd := range forwards {
+		forwardInfos = append(forwardInfos, protocol.ForwardInfo{
+			RemotePort: fwd.RemotePort,
+			LocalPort:  fwd.LocalPort,
+			Host:       fwd.Host,
+			CreatedAt:  fwd.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	
 	list := protocol.ListResponse{
-		Forwards: []protocol.ForwardInfo{},
+		Forwards: forwardInfos,
 	}
 
 	resp, err := protocol.NewSuccessResponse(req.ID, list)
 	if err != nil {
 		return protocol.NewErrorResponse(req.ID, err)
 	}
+	return resp
+}
+
+// handleForwardCommand handles the port forward command
+func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response {
+	// Parse payload
+	var forwardReq protocol.ForwardRequest
+	if err := json.Unmarshal(req.Payload, &forwardReq); err != nil {
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid payload: %w", err))
+	}
+
+	// Find socket path if not provided
+	socketPath := forwardReq.SocketPath
+	if socketPath == "" {
+		var err error
+		socketPath, err = forwarder.FindControlSocket(forwardReq.ConnectionInfo)
+		if err != nil {
+			return protocol.NewErrorResponse(req.ID, fmt.Errorf("failed to find SSH socket: %w", err))
+		}
+	}
+
+	// Add forward
+	if err := d.forwarder.AddForward(socketPath, forwardReq.RemotePort, forwardReq.LocalPort, forwardReq.Host); err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+
+	// Default values
+	host := forwardReq.Host
+	if host == "" {
+		host = "localhost"
+	}
+	localPort := forwardReq.LocalPort
+	if localPort == 0 {
+		localPort = forwardReq.RemotePort
+	}
+
+	// Return success
+	resp, _ := protocol.NewSuccessResponse(req.ID, map[string]interface{}{
+		"message": fmt.Sprintf("Forwarded %s:%d to localhost:%d", 
+			host, forwardReq.RemotePort, localPort),
+		"socket_path": socketPath,
+	})
 	return resp
 }
 

@@ -93,12 +93,12 @@ When working on remote servers via SSH, these workflows fail because:
 - [x] Error handling and client responses
 - [x] Test cross-platform compatibility
 
-### Phase 3: Port Forwarding
-- [ ] Extend protocol for port forward commands
-- [ ] SSH ControlMaster socket detection
-- [ ] Implement `ssh -O forward` execution
-- [ ] Track active forwards per connection
-- [ ] Automatic cleanup on disconnect
+### Phase 3: Port Forwarding ✓
+- [x] Extend protocol for port forward commands
+- [x] SSH ControlMaster socket detection
+- [x] Implement `ssh -O forward` execution
+- [x] Track active forwards per connection
+- [x] Automatic cleanup on disconnect
 
 ### Phase 4: CLI Tool
 - [ ] Create `bankshot` CLI client
