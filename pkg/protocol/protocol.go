@@ -50,17 +50,26 @@ type ForwardRequest struct {
 
 // ForwardInfo represents information about an active forward
 type ForwardInfo struct {
-	RemotePort int    `json:"remote_port"`
-	LocalPort  int    `json:"local_port"`
-	Host       string `json:"host"`
-	CreatedAt  string `json:"created_at"`
+	RemotePort     int    `json:"remote_port"`
+	LocalPort      int    `json:"local_port"`
+	Host           string `json:"host"`
+	ConnectionInfo string `json:"connection_info"`
+	CreatedAt      string `json:"created_at"`
 }
 
 // StatusResponse represents daemon status
 type StatusResponse struct {
-	Version        string `json:"version"`
-	Uptime         string `json:"uptime"`
-	ActiveForwards int    `json:"active_forwards"`
+	Version        string             `json:"version"`
+	Uptime         string             `json:"uptime"`
+	ActiveForwards int                `json:"active_forwards"`
+	Connections    []ConnectionStatus `json:"connections,omitempty"`
+}
+
+// ConnectionStatus represents status of a single SSH connection
+type ConnectionStatus struct {
+	ConnectionInfo string `json:"connection_info"`
+	ForwardCount   int    `json:"forward_count"`
+	LastActivity   string `json:"last_activity"`
 }
 
 // ListResponse represents list of active forwards

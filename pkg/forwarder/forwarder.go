@@ -46,7 +46,8 @@ func (f *Forwarder) AddForward(socketPath string, connectionInfo string, remoteP
 		localPort = remotePort
 	}
 
-	key := fmt.Sprintf("%s:%d", host, remotePort)
+	// Include connection info in key to support multiple SSH sessions
+	key := fmt.Sprintf("%s:%s:%d", connectionInfo, host, remotePort)
 
 	// Check if already forwarded
 	f.mu.RLock()
@@ -108,7 +109,8 @@ func (f *Forwarder) RemoveForward(connectionInfo string, remotePort int, host st
 		host = "localhost"
 	}
 
-	key := fmt.Sprintf("%s:%d", host, remotePort)
+	// Include connection info in key to support multiple SSH sessions
+	key := fmt.Sprintf("%s:%s:%d", connectionInfo, host, remotePort)
 
 	// Get forward info
 	f.mu.RLock()
@@ -216,21 +218,69 @@ func FindControlSocket(connectionInfo string) (string, error) {
 // CleanupForSocket removes all forwards for a specific socket
 func (f *Forwarder) CleanupForSocket(socketPath string) {
 	f.mu.RLock()
-	var toRemove []string
+	var toRemove []struct {
+		key            string
+		connectionInfo string
+		host           string
+		port           int
+	}
 	for key, forward := range f.forwards {
 		if forward.SocketPath == socketPath {
-			toRemove = append(toRemove, key)
+			toRemove = append(toRemove, struct {
+				key            string
+				connectionInfo string
+				host           string
+				port           int
+			}{
+				key:            key,
+				connectionInfo: forward.ConnectionInfo,
+				host:           forward.Host,
+				port:           forward.RemotePort,
+			})
 		}
 	}
 	f.mu.RUnlock()
 
-	for _, key := range toRemove {
-		parts := strings.Split(key, ":")
-		if len(parts) == 2 {
-			host := parts[0]
-			var port int
-			fmt.Sscanf(parts[1], "%d", &port)
-			f.RemoveForward(socketPath, port, host)
+	for _, item := range toRemove {
+		f.RemoveForward(item.connectionInfo, item.port, item.host)
+	}
+}
+
+// CleanupForConnection removes all forwards for a specific connection
+func (f *Forwarder) CleanupForConnection(connectionInfo string) {
+	f.mu.RLock()
+	var toRemove []struct {
+		host string
+		port int
+	}
+	for _, forward := range f.forwards {
+		if forward.ConnectionInfo == connectionInfo {
+			toRemove = append(toRemove, struct {
+				host string
+				port int
+			}{
+				host: forward.Host,
+				port: forward.RemotePort,
+			})
 		}
 	}
+	f.mu.RUnlock()
+
+	for _, item := range toRemove {
+		f.RemoveForward(connectionInfo, item.port, item.host)
+	}
+}
+
+// ListConnectionForwards returns forwards for a specific connection
+func (f *Forwarder) ListConnectionForwards(connectionInfo string) []*Forward {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	var forwards []*Forward
+	for _, fwd := range f.forwards {
+		if fwd.ConnectionInfo == connectionInfo {
+			forwards = append(forwards, fwd)
+		}
+	}
+	return forwards
 }

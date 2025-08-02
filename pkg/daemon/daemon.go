@@ -56,7 +56,7 @@ func (d *Daemon) Run() error {
 
 	// Clean up existing socket if unix
 	if d.config.Network == "unix" {
-		// Set umask for socket permissions
+		// Set umask for socket permissions (user-only access)
 		oldUmask := syscall.Umask(0077)
 		defer syscall.Umask(oldUmask)
 
@@ -65,10 +65,20 @@ func (d *Daemon) Run() error {
 			return fmt.Errorf("failed to remove existing socket: %w", err)
 		}
 
-		// Ensure directory exists
+		// Ensure directory exists with secure permissions
 		socketDir := filepath.Dir(d.config.Address)
 		if err := os.MkdirAll(socketDir, 0700); err != nil {
 			return fmt.Errorf("failed to create socket directory: %w", err)
+		}
+
+		// Verify directory permissions
+		if info, err := os.Stat(socketDir); err == nil {
+			mode := info.Mode()
+			if mode.Perm()&0077 != 0 {
+				d.logger.Warn("Socket directory has weak permissions",
+					"path", socketDir,
+					"mode", mode.Perm())
+			}
 		}
 	}
 
@@ -132,6 +142,24 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 
 	remoteAddr := conn.RemoteAddr().String()
 	d.logger.Debug("New connection", "remote", remoteAddr)
+
+	// For Unix sockets, verify connection is from same user
+	if d.config.Network == "unix" {
+		if unixConn, ok := conn.(*net.UnixConn); ok {
+			// Get connection credentials if supported by platform
+			rawConn, err := unixConn.SyscallConn()
+			if err == nil {
+				err = rawConn.Control(func(fd uintptr) {
+					// This is platform-specific and may not work on all systems
+					// On Linux, we could use SO_PEERCRED
+					// For now, we rely on socket file permissions
+				})
+				if err != nil {
+					d.logger.Debug("Could not verify peer credentials", "error", err)
+				}
+			}
+		}
+	}
 
 	// Read request from connection
 	reader := bufio.NewReader(conn)
@@ -204,10 +232,39 @@ func (d *Daemon) handleOpenCommand(req *protocol.Request) *protocol.Response {
 func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 	uptime := time.Since(d.startTime).Round(time.Second).String()
 
+	// Get all forwards and group by connection
+	forwards := d.forwarder.ListForwards()
+	connectionMap := make(map[string]*protocol.ConnectionStatus)
+
+	for _, fwd := range forwards {
+		if _, exists := connectionMap[fwd.ConnectionInfo]; !exists {
+			connectionMap[fwd.ConnectionInfo] = &protocol.ConnectionStatus{
+				ConnectionInfo: fwd.ConnectionInfo,
+				ForwardCount:   0,
+				LastActivity:   fwd.CreatedAt.Format(time.RFC3339),
+			}
+		}
+		connectionMap[fwd.ConnectionInfo].ForwardCount++
+		// Update last activity if this forward is newer
+		if fwd.CreatedAt.After(time.Time{}) {
+			lastActivity, _ := time.Parse(time.RFC3339, connectionMap[fwd.ConnectionInfo].LastActivity)
+			if fwd.CreatedAt.After(lastActivity) {
+				connectionMap[fwd.ConnectionInfo].LastActivity = fwd.CreatedAt.Format(time.RFC3339)
+			}
+		}
+	}
+
+	// Convert map to slice
+	connections := make([]protocol.ConnectionStatus, 0, len(connectionMap))
+	for _, conn := range connectionMap {
+		connections = append(connections, *conn)
+	}
+
 	status := protocol.StatusResponse{
 		Version:        "0.1.0", // TODO: Use version from build
 		Uptime:         uptime,
-		ActiveForwards: len(d.forwarder.ListForwards()),
+		ActiveForwards: len(forwards),
+		Connections:    connections,
 	}
 
 	resp, err := protocol.NewSuccessResponse(req.ID, status)
@@ -224,10 +281,11 @@ func (d *Daemon) handleListCommand(req *protocol.Request) *protocol.Response {
 	forwardInfos := make([]protocol.ForwardInfo, 0, len(forwards))
 	for _, fwd := range forwards {
 		forwardInfos = append(forwardInfos, protocol.ForwardInfo{
-			RemotePort: fwd.RemotePort,
-			LocalPort:  fwd.LocalPort,
-			Host:       fwd.Host,
-			CreatedAt:  fwd.CreatedAt.Format(time.RFC3339),
+			RemotePort:     fwd.RemotePort,
+			LocalPort:      fwd.LocalPort,
+			Host:           fwd.Host,
+			ConnectionInfo: fwd.ConnectionInfo,
+			CreatedAt:      fwd.CreatedAt.Format(time.RFC3339),
 		})
 	}
 

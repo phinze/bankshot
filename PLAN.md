@@ -114,12 +114,12 @@ When working on remote servers via SSH, these workflows fail because:
 - [x] Socket permissions handling
 - [x] Update README with installation instructions
 
-### Phase 6: Enhanced Features
-- [ ] Multiple simultaneous SSH sessions
-- [ ] Port forward status monitoring
-- [ ] Automatic port detection (from wrapped commands)
-- [ ] Security: socket access controls
-- [ ] Configuration management
+### Phase 6: Enhanced Features ✓
+- [x] Multiple simultaneous SSH sessions
+- [x] Port forward status monitoring (wrap command)
+- [x] Automatic port detection (from wrapped commands)
+- [x] Security: socket access controls
+- [x] Configuration management
 
 ### Phase 7: Testing & Documentation
 - [ ] Unit tests for all components

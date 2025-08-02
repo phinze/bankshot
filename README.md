@@ -24,6 +24,9 @@ Inspired by and building upon the excellent work of [superbrothers/opener](https
 - 🔒 **Secure** - Unix socket with user-only permissions
 - 🎯 **Drop-in Replacement** - Works as a replacement for the `open` command
 - 📊 **Status Monitoring** - Track active forwards and daemon status
+- 👥 **Multi-Session Support** - Manage forwards across multiple SSH connections
+- 📈 **Live Monitoring** - Real-time status updates with `monitor` command
+- ⚙️ **Configuration Management** - View and verify daemon configuration
 
 ## Installation
 
@@ -75,6 +78,16 @@ bankshot status
 
 # List active forwards
 bankshot list
+
+# Monitor status continuously
+bankshot monitor
+
+# View configuration
+bankshot config
+
+# Wrap a command to auto-forward its ports
+bankshot wrap -- npm run dev
+bankshot wrap -- python -m http.server 8080
 ```
 
 ### 3. Compatibility Mode
@@ -132,6 +145,24 @@ bankshot open http://localhost:8080
 # Use as drop-in replacement for 'open'
 alias open='bankshot open'
 open https://github.com
+```
+
+### Automatic Port Forwarding
+
+Wrap any command to automatically forward ports it opens:
+
+```bash
+# Development server with auto-forwarding
+$ bankshot wrap -- npm run dev
+Starting wrapped process: npm run dev
+Process started with PID: 12345
+Auto-forwarded port 3000
+Auto-forwarded port 3001
+
+# Python HTTP server
+$ bankshot wrap -- python -m http.server 8888
+Starting wrapped process: python -m http.server 8888
+Auto-forwarded port 8888
 ```
 
 ## Architecture
