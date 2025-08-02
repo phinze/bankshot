@@ -120,9 +120,9 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/phinze/bankshot"
     description: "Automatic SSH port forwarding and browser opening for remote development"
-    # We need to use a custom block to install both binaries
+    binary: bankshot
+    # We need to use a custom block to install the second binary
     custom_block: |
-      binary "bankshot"
       binary "bankshotd"
     # Since the binaries aren't signed/notarized, we need to remove quarantine
     hooks:
