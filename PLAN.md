@@ -107,12 +107,12 @@ When working on remote servers via SSH, these workflows fail because:
 - [x] Port forward command interface
 - [x] Configuration and socket discovery
 
-### Phase 5: Homebrew Integration
-- [ ] Create Homebrew formula
-- [ ] LaunchAgent plist for daemon
-- [ ] Post-install setup instructions
-- [ ] Socket permissions handling
-- [ ] Migration guide from opener
+### Phase 5: Homebrew Integration ✓
+- [x] Create Homebrew formula
+- [x] LaunchAgent plist for daemon
+- [x] Post-install setup instructions
+- [x] Socket permissions handling
+- [x] Update README with installation instructions
 
 ### Phase 6: Enhanced Features
 - [ ] Multiple simultaneous SSH sessions

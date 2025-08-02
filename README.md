@@ -1,145 +1,184 @@
 # bankshot
 
-Automatic SSH port forwarding for remote development workflows.
+A daemon-based tool for opening URLs and managing SSH port forwards from remote development environments.
 
-## The Problem
+## Overview
 
-When working on remote dev servers via SSH, many tools require browser-based OAuth flows that redirect to `localhost:PORT`. While you can open browsers remotely, these auth flows fail because the remote server can't bind to the same localhost ports your local browser expects.
+`bankshot` solves the remote development workflow problem where you need to:
+- Open URLs in your local browser from SSH sessions
+- Forward ports dynamically for OAuth flows and development servers
+- Replace manual SSH port forwarding with automatic, on-demand forwarding
 
-## The Solution
+It consists of:
+- **bankshotd**: A lightweight daemon that runs on your local machine
+- **bankshot**: A CLI client that communicates with the daemon from remote SSH sessions
 
-`bankshot` wraps any command and automatically forwards ports it opens through your existing SSH connection using ControlMaster. No configuration needed - it just works!
+## Acknowledgements
+
+Inspired by and building upon the excellent work of [superbrothers/opener](https://github.com/superbrothers/opener). Thank you to the authors for the original concept of remote URL opening.
 
 ## Features
 
-- 🚀 **Zero Configuration** - Automatically detects SSH sessions and ControlMaster sockets
-- 🔍 **Smart Port Detection** - Monitors child processes for new port bindings
-- 🔄 **Dynamic Forwarding** - Adds and removes port forwards as needed
-- 🧹 **Clean Cleanup** - Removes all forwards when process exits
-- 📊 **Flexible Logging** - Debug, quiet, and JSON output modes
+- 🌐 **URL Opening** - Open URLs in your local browser from any SSH session
+- 🚀 **Dynamic Port Forwarding** - Forward ports on-demand without restarting SSH
+- 🔒 **Secure** - Unix socket with user-only permissions
+- 🎯 **Drop-in Replacement** - Works as a replacement for the `open` command
+- 📊 **Status Monitoring** - Track active forwards and daemon status
 
 ## Installation
+
+### macOS (Homebrew)
+
+```bash
+brew tap phinze/tap
+brew install phinze/tap/bankshot
+brew services start phinze/tap/bankshot
+```
 
 ### From Source
 
 ```bash
 git clone https://github.com/phinze/bankshot
 cd bankshot
-go build -o bankshot .
-sudo mv bankshot /usr/local/bin/
+go build -o bankshotd ./cmd/bankshotd
+go build -o bankshot ./cmd/bankshot
+sudo cp bankshotd bankshot /usr/local/bin/
 ```
 
-### Prerequisites
+See [docs/INSTALL.md](docs/INSTALL.md) for detailed installation instructions.
 
-- SSH connection with ControlMaster enabled
-- Go 1.24+ (for building from source)
+## Quick Start
 
-## Usage
-
-### Basic Usage
-
-Wrap any command with `bankshot`:
-
-```bash
-# OAuth flow that opens browser to localhost:8080
-bankshot some-oauth-cli-tool --port 8080
-
-# Development server with random port
-bankshot npm run dev
-
-# Python HTTP server
-bankshot python -m http.server 8888
-```
-
-### Setting Up SSH ControlMaster
+### 1. Configure SSH
 
 Add to your `~/.ssh/config`:
 
 ```
-Host myserver
-    HostName example.com
+Host *
     ControlMaster auto
     ControlPath /tmp/ssh-%r@%h:%p
     ControlPersist 10m
+    RemoteForward ~/.bankshot.sock ~/.bankshot.sock
 ```
 
-Then connect normally:
+### 2. Use from Remote Sessions
 
 ```bash
-ssh myserver
+# Open URL in local browser
+bankshot open https://github.com
+
+# Forward a port
+bankshot forward 8080
+
+# Check status
+bankshot status
+
+# List active forwards
+bankshot list
 ```
 
-### Environment Variables
+### 3. Compatibility Mode
 
-- `BANKSHOT_DEBUG=1` - Enable debug logging to see port detection and forwarding
-- `BANKSHOT_QUIET=1` - Suppress all but error messages
-- `BANKSHOT_LOG_FORMAT=json` - Output logs in JSON format
-- `BANKSHOT_SSH_SOCKET=/path/to/socket` - Override ControlMaster socket detection
-
-## How It Works
-
-1. **Process Monitoring** - bankshot spawns your command and monitors its port bindings
-2. **Port Detection** - Polls `/proc/net/tcp` to detect when the process opens new ports
-3. **SSH Forwarding** - Uses `ssh -O forward` to dynamically add port forwards
-4. **Automatic Cleanup** - Removes forwards when ports close or process exits
-
-## Examples
-
-### OAuth Flow Example
+Create an alias to replace the `open` command:
 
 ```bash
-# GitHub CLI authentication
-bankshot gh auth login
-
-# The CLI starts OAuth flow on localhost:45678
-# bankshot detects port 45678 and forwards it
-# Browser redirects work seamlessly
-# Forward is removed after authentication
+alias open='bankshot open'
 ```
 
-### Development Server Example
+## Usage Examples
+
+### OAuth Flow
+
+When a tool needs browser authentication:
 
 ```bash
-# Start a Next.js dev server
-bankshot npm run dev
+# On remote server
+$ some-oauth-tool login
+OAuth URL: http://localhost:8080/callback
+# Tool hangs waiting for callback...
 
-# Server starts on port 3000
-# bankshot forwards localhost:3000
-# Access http://localhost:3000 in your browser
-# Live reload and HMR work normally
+# In another terminal on remote server
+$ bankshot forward 8080
+Port forward created: 8080 -> 8080
+
+# Now the OAuth flow completes in your local browser
 ```
 
-### Multiple Ports Example
+### Development Server
+
+Forward your dev server to access it locally:
 
 ```bash
-# Run a service with multiple ports
-bankshot docker-compose up
+# On remote server
+$ npm run dev
+Server running on http://localhost:3000
 
-# Each service port is forwarded automatically
-# Ports are removed as services stop
+# In another terminal
+$ bankshot forward 3000
+Port forward created: 3000 -> 3000
+
+# Access http://localhost:3000 in your local browser
 ```
 
-## Debugging
-
-Enable debug mode to see what bankshot is doing:
+### Opening URLs
 
 ```bash
-BANKSHOT_DEBUG=1 bankshot your-command
+# Open project documentation
+bankshot open https://docs.myproject.com
+
+# Open local development server
+bankshot open http://localhost:8080
+
+# Use as drop-in replacement for 'open'
+alias open='bankshot open'
+open https://github.com
 ```
 
-Debug output shows:
-- SSH session detection
-- ControlMaster socket location
-- Port detection events
-- Forward add/remove commands
-- Cleanup operations
+## Architecture
 
-## Limitations
+```
+┌────────────────────┐                 ┌────────────────────┐
+│   Local Machine    │                 │  Remote Machine    │
+│                    │                 │                    │
+│ ┌────────────────┐ │                 │ ┌────────────────┐ │
+│ │   Web Browser  │ │                 │ │ bankshot (CLI) │ │
+│ └─▲──────────────┘ │                 │ └─┬──────────────┘ │
+│   │ Open URL       │                 │   │ Send command   │
+│ ┌─┴──────────────┐ │                 │   │                │
+│ │bankshot daemon │ │                 │   │                │
+│ │ - URL opener   │ │                 │   │                │
+│ │ - Port forward │ │                 │   │                │
+│ └─┬──────────────┘ │                 │   │                │
+│   │                │                 │   │                │
+│ ┌─┴──────────────┐ │ SSH connection  │ ┌─▼──────────────┐ │
+│ │~/.bankshot.sock│ ├─────────────────► │~/.bankshot.sock│ │
+│ └────────────────┘ │ Remote forward  │ └────────────────┘ │
+│                    │                 │                    │
+└────────────────────┘                 └────────────────────┘
+```
 
-- Requires SSH ControlMaster (no password/key prompts)
-- Linux only (uses `/proc/net/tcp` for port detection)
-- Forwards TCP ports only (no UDP support)
-- Can't forward privileged ports (<1024) unless SSH allows it
+## Troubleshooting
+
+### Check daemon status
+```bash
+bankshot status
+brew services list | grep bankshot
+```
+
+### View logs
+```bash
+# Homebrew installation
+tail -f /usr/local/var/log/bankshot/bankshot.log
+
+# Manual installation
+tail -f /tmp/bankshot.log
+```
+
+### Common issues
+
+- **"Failed to connect to daemon"**: Ensure bankshotd is running
+- **"No active SSH connection"**: Check SSH ControlMaster is configured
+- **"Failed to forward port"**: Port may already be in use locally
 
 ## Contributing
 
