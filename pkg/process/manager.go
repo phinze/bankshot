@@ -15,7 +15,7 @@ type Manager struct {
 }
 
 // New creates a new process manager
-func New(command string, args []string) *Manager {
+func New(command string, args []string, extraEnv map[string]string) *Manager {
 	cmd := exec.Command(command, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -24,10 +24,10 @@ func New(command string, args []string) *Manager {
 	// Inherit environment
 	cmd.Env = os.Environ()
 
-	// Set BROWSER to use bankshot open for automatic browser forwarding
-	// This allows tools that respect the BROWSER env var to automatically
-	// open URLs through bankshot
-	cmd.Env = append(cmd.Env, "BROWSER=bankshot open")
+	// Add any extra environment variables
+	for key, value := range extraEnv {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
 
 	return &Manager{
 		cmd:  cmd,
