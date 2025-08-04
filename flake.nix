@@ -80,6 +80,7 @@
           golangci-lint
           delve
           goreleaser
+          svu
         ];
 
         shellHook = ''
