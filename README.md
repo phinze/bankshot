@@ -13,14 +13,6 @@ Components:
 - **bankshotd**: Local daemon that handles requests
 - **bankshot**: CLI client used in remote SSH sessions
 
-## Features
-
-- 🌐 Open URLs in local browser from any SSH session
-- 🚀 Dynamic port forwarding without restarting SSH
-- 🔄 Auto-forward ports with `wrap` command
-- 🔒 Secure Unix socket communication
-- 📊 Monitor active forwards and daemon status
-
 ## Installation
 
 ### macOS (Homebrew)
