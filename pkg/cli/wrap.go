@@ -92,28 +92,56 @@ Examples:
 				return fmt.Errorf("failed to start port monitor: %w", err)
 			}
 
-			forwardedPorts := make(map[int]bool)
+			// Get existing forwards before we start
+			existingPorts := make(map[int]bool)
+			listReq := protocol.Request{
+				ID:   uuid.New().String(),
+				Type: protocol.CommandList,
+			}
+			if resp, err := sendRequest(&listReq); err == nil && resp.Success {
+				var list protocol.ListResponse
+				if err := json.Unmarshal(resp.Data, &list); err == nil {
+					for _, fw := range list.Forwards {
+						if fw.ConnectionInfo == connectionInfo {
+							existingPorts[fw.RemotePort] = true
+						}
+					}
+				}
+			}
+
+			ourForwardedPorts := make(map[int]bool)
 
 			go func() {
 				for event := range portMon.Events() {
 					switch event.EventType {
 					case monitor.PortOpened:
-						if !forwardedPorts[event.Port.Port] {
-							req := createForwardRequest(event.Port.Port, event.Port.Port, connectionInfo)
-							resp, err := sendRequest(&req)
-							if err != nil {
-								if !quiet {
-									fmt.Fprintf(os.Stderr, "Failed to forward port %d: %v\n", event.Port.Port, err)
-								}
-							} else if resp.Success {
-								forwardedPorts[event.Port.Port] = true
-								if !quiet {
-									fmt.Printf("Auto-forwarded port %d\n", event.Port.Port)
-								}
+						// Skip if port was already forwarded before wrap started
+						if existingPorts[event.Port.Port] {
+							if verbose {
+								fmt.Printf("Port %d already forwarded, skipping\n", event.Port.Port)
+							}
+							continue
+						}
+
+						// Skip if we already forwarded this port
+						if ourForwardedPorts[event.Port.Port] {
+							continue
+						}
+
+						req := createForwardRequest(event.Port.Port, event.Port.Port, connectionInfo)
+						resp, err := sendRequest(&req)
+						if err != nil {
+							if !quiet {
+								fmt.Fprintf(os.Stderr, "Failed to forward port %d: %v\n", event.Port.Port, err)
+							}
+						} else if resp.Success {
+							ourForwardedPorts[event.Port.Port] = true
+							if !quiet {
+								fmt.Printf("Auto-forwarded port %d\n", event.Port.Port)
 							}
 						}
 					case monitor.PortClosed:
-						delete(forwardedPorts, event.Port.Port)
+						// We don't need to track port closes, we'll clean up at the end
 					}
 				}
 			}()
@@ -161,9 +189,31 @@ Examples:
 				fmt.Printf("Process exited with code: %d\n", exitCode)
 			}
 
-			for port := range forwardedPorts {
-				if verbose {
-					fmt.Printf("Port %d forward remains active\n", port)
+			// Unforward only the ports we created
+			for port := range ourForwardedPorts {
+				unforwardReq := protocol.UnforwardRequest{
+					RemotePort:     port,
+					Host:           "localhost",
+					ConnectionInfo: connectionInfo,
+				}
+
+				payload, _ := json.Marshal(unforwardReq)
+				req := protocol.Request{
+					ID:      uuid.New().String(),
+					Type:    protocol.CommandUnforward,
+					Payload: payload,
+				}
+
+				if resp, err := sendRequest(&req); err == nil && resp.Success {
+					if verbose {
+						fmt.Printf("Unforwarded port %d\n", port)
+					}
+				} else if verbose {
+					if err != nil {
+						fmt.Printf("Failed to unforward port %d: %v\n", port, err)
+					} else {
+						fmt.Printf("Failed to unforward port %d: %s\n", port, resp.Error)
+					}
 				}
 			}
 
