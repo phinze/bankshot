@@ -7,7 +7,6 @@ import (
 
 var (
 	socketPath string
-	quiet      bool
 	verbose    bool
 )
 
@@ -24,7 +23,6 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&socketPath, "socket", "s", "", "Path to bankshot socket")
-	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 
 	rootCmd.AddCommand(newOpenCmd())

@@ -39,7 +39,7 @@ func newOpenCmd() *cobra.Command {
 				return fmt.Errorf("failed to open URL: %s", resp.Error)
 			}
 
-			if !quiet {
+			if verbose {
 				fmt.Println("URL opened successfully")
 			}
 			return nil

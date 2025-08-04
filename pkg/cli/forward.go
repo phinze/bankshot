@@ -77,7 +77,7 @@ If local-port is not specified, it defaults to the same as remote-port.`,
 				return fmt.Errorf("failed to create forward: %s", resp.Error)
 			}
 
-			if !quiet {
+			if verbose {
 				fmt.Printf("Port forward created: %d -> %d\n", remotePort, localPort)
 			}
 			return nil

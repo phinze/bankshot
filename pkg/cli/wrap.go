@@ -38,7 +38,7 @@ Examples:
   bankshot wrap -c myserver -- ./myapp --port 3000`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !quiet {
+			if verbose {
 				fmt.Printf("Starting wrapped process: %s\n", strings.Join(args, " "))
 			}
 
@@ -131,12 +131,12 @@ Examples:
 						req := createForwardRequest(event.Port.Port, event.Port.Port, connectionInfo)
 						resp, err := sendRequest(&req)
 						if err != nil {
-							if !quiet {
+							if verbose {
 								fmt.Fprintf(os.Stderr, "Failed to forward port %d: %v\n", event.Port.Port, err)
 							}
 						} else if resp.Success {
 							ourForwardedPorts[event.Port.Port] = true
-							if !quiet {
+							if verbose {
 								fmt.Printf("Auto-forwarded port %d\n", event.Port.Port)
 							}
 						}
@@ -185,7 +185,7 @@ Examples:
 
 			cancel()
 
-			if !quiet {
+			if verbose {
 				fmt.Printf("Process exited with code: %d\n", exitCode)
 			}
 

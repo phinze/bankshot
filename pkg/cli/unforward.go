@@ -67,7 +67,7 @@ func newUnforwardCmd() *cobra.Command {
 				return fmt.Errorf("failed to remove forward: %s", resp.Error)
 			}
 
-			if !quiet {
+			if verbose {
 				fmt.Printf("Port forward removed: %d\n", remotePort)
 			}
 			return nil
