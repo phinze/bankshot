@@ -19,6 +19,9 @@ func TestNew(t *testing.T) {
 }
 
 func TestOpenURL(t *testing.T) {
+	// Set environment variable to prevent browser opening in tests
+	t.Setenv("BANKSHOT_TEST_NO_BROWSER", "1")
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	o := New(logger)
 
@@ -51,17 +54,19 @@ func TestOpenURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Note: This test won't actually open URLs in CI environment
-			// The browser package handles that gracefully
+			// Browser opening is disabled by BANKSHOT_TEST_NO_BROWSER env var
 			err := o.OpenURL(tt.url)
-			// We don't check for errors here because browser.OpenURL
-			// behavior depends on the environment (headless, no display, etc)
-			_ = err
+			if err != nil {
+				t.Errorf("OpenURL() error = %v, wantErr %v", err, tt.wantErr)
+			}
 		})
 	}
 }
 
 func TestOpenURLConcurrency(t *testing.T) {
+	// Set environment variable to prevent browser opening in tests
+	t.Setenv("BANKSHOT_TEST_NO_BROWSER", "1")
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	o := New(logger)
 

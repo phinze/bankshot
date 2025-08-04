@@ -3,6 +3,7 @@ package opener
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 
 	"github.com/pkg/browser"
@@ -28,6 +29,12 @@ func (o *Opener) OpenURL(url string) error {
 	defer o.mu.Unlock()
 
 	o.logger.Info("Opening URL", "url", url)
+
+	// Check if we're in test mode - if so, skip actual browser opening
+	if os.Getenv("BANKSHOT_TEST_NO_BROWSER") == "1" {
+		o.logger.Debug("Test mode: skipping browser open", "url", url)
+		return nil
+	}
 
 	// Use the browser package to open the URL
 	if err := browser.OpenURL(url); err != nil {
