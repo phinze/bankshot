@@ -7,14 +7,13 @@
 }:
 with lib; let
   cfg = config.programs.bankshot;
-
 in {
   options.programs.bankshot = {
     enable = mkEnableOption "bankshot - automatic SSH port forwarding";
 
     package = mkOption {
       type = types.package;
-      default = 
+      default =
         if bankshotPackages != null
         then bankshotPackages.${pkgs.system}.default
         else throw "bankshot package must be provided when not using the flake module";
@@ -54,7 +53,6 @@ in {
     home.file = mkIf cfg.enableXdgOpen {
       ".local/bin/xdg-open" = {
         source = "${cfg.package}/bin/bankshot";
-        executable = true;
       };
     };
 
@@ -69,4 +67,3 @@ in {
     home.sessionPath = mkIf cfg.enableXdgOpen ["$HOME/.local/bin"];
   };
 }
-
