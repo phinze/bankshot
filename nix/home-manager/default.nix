@@ -2,24 +2,23 @@
   config,
   lib,
   pkgs,
+  bankshotPackages ? null,
   ...
 }:
 with lib; let
   cfg = config.programs.bankshot;
 
-  # Import bankshot from the flake if not available in pkgs
-  bankshotPackage =
-    if (pkgs ? bankshot)
-    then pkgs.bankshot
-    else (builtins.getFlake (toString ../..)).packages.${pkgs.system}.bankshot;
 in {
   options.programs.bankshot = {
     enable = mkEnableOption "bankshot - automatic SSH port forwarding";
 
     package = mkOption {
       type = types.package;
-      default = bankshotPackage;
-      defaultText = literalExpression "pkgs.bankshot";
+      default = 
+        if bankshotPackages != null
+        then bankshotPackages.${pkgs.system}.default
+        else throw "bankshot package must be provided when not using the flake module";
+      defaultText = literalExpression "bankshot.packages.\${system}.default";
       description = "The bankshot package to install.";
     };
 

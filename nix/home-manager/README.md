@@ -4,7 +4,7 @@ This Home Manager module provides a declarative way to install and configure ban
 
 ## Usage
 
-### In your flake.nix
+Add bankshot to your flake inputs and use the module:
 
 ```nix
 {
@@ -35,33 +35,10 @@ This Home Manager module provides a declarative way to install and configure ban
 }
 ```
 
-### Without flakes
-
-```nix
-{ pkgs, ... }:
-
-let
-  bankshot = pkgs.fetchFromGitHub {
-    owner = "phinze";
-    repo = "bankshot";
-    # Update rev and sha256 as needed
-    rev = "main";
-    sha256 = "...";
-  };
-in {
-  imports = [ "${bankshot}/nix/home-manager" ];
-
-  programs.bankshot = {
-    enable = true;
-    enableXdgOpen = true;
-  };
-}
-```
-
 ## Options
 
 - `programs.bankshot.enable`: Enable bankshot
-- `programs.bankshot.package`: The bankshot package to use (defaults to the flake's package)
+- `programs.bankshot.package`: The bankshot package to use (automatically provided when using the flake module)
 - `programs.bankshot.enableXdgOpen`: Create an xdg-open symlink to bankshot in ~/.local/bin
 - `programs.bankshot.settings`: Configuration to write to ~/.config/bankshot/config.json
 

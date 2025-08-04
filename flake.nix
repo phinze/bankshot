@@ -13,8 +13,11 @@
   }:
     {
       # Home Manager module
-      homeManagerModules.default = ./nix/home-manager;
-      homeManagerModules.bankshot = ./nix/home-manager;
+      homeManagerModules.default = { pkgs, ... }: {
+        imports = [ ./nix/home-manager ];
+        config._module.args.bankshotPackages = self.packages;
+      };
+      homeManagerModules.bankshot = self.homeManagerModules.default;
     }
     // flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
