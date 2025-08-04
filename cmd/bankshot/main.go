@@ -8,8 +8,9 @@ import (
 )
 
 func main() {
-	// Check if called as 'open' for compatibility mode
-	if filepath.Base(os.Args[0]) == "open" && len(os.Args) >= 2 {
+	// Check if called as 'open' or 'xdg-open' for compatibility mode
+	baseName := filepath.Base(os.Args[0])
+	if (baseName == "open" || baseName == "xdg-open") && len(os.Args) >= 2 {
 		// Compatibility mode: bankshot open <url>
 		os.Args = append([]string{"bankshot", "open"}, os.Args[1:]...)
 	}
