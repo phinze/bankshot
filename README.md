@@ -61,6 +61,10 @@ Host *
 
 ### 2. Basic Commands
 
+Once you're running the daemon locally and have SSH configured, on a remote SSH
+server w/ Bankshot installed you can use the CLI to perform actions on your
+local machine:
+
 ```bash
 # Open URL in local browser
 bankshot open https://github.com
@@ -74,59 +78,6 @@ bankshot wrap -- npm run dev
 # Check status
 bankshot status
 ```
-
-Replace the `open` command: `alias open='bankshot open'`
-
-## Usage Examples
-
-### OAuth Flow
-```bash
-# When OAuth tool needs browser authentication
-$ bankshot wrap -- gcloud auth login
-```
-
-### Development Server
-```bash
-# Auto-forward all ports
-$ bankshot wrap -- npm run dev
-
-# Or manually forward specific port
-$ bankshot forward 3000
-
-# Forward to different local port
-$ bankshot forward 8080:9090
-```
-
-### Automatic Browser Forwarding
-The `wrap` command sets `BROWSER=bankshot open`, so tools that respect the BROWSER environment variable will automatically open URLs through bankshot:
-```bash
-# Any browser opens from the wrapped command will use bankshot
-$ bankshot wrap -- your-dev-tool
-```
-
-### Opening URLs
-```bash
-bankshot open https://github.com
-bankshot open http://localhost:8080
-bankshot open file:///path/to/document.pdf
-```
-
-## Configuration
-
-### Daemon Configuration
-
-Optional config file at `~/.config/bankshot/config.yaml`:
-
-```yaml
-network: unix                    # or "tcp"
-address: ~/.bankshot.sock       # or "127.0.0.1:9999" for tcp
-log_level: info                 # debug, info, warn, error
-```
-
-### Environment Variables
-
-- `BANKSHOT_DEBUG`: Enable debug logging
-- `BANKSHOT_SOCKET`: Override socket path
 
 ## Architecture
 
@@ -155,11 +106,53 @@ log_level: info                 # debug, info, warn, error
 - **CLI**: Sends commands from remote SSH sessions
 - **Communication**: JSON over Unix socket (forwarded via SSH)
 
+## Usage Examples
+
+### OAuth Flow
+
+If you shadow the xdg-open command, you can get tools like gcloud to route browser open requests through bankshot:
+
+```bash
+# Shadow xdg-open with bankshot
+sudo ln -s $(which bankshot) /usr/local/bin/xdg-open
+
+# When OAuth tool needs browser authentication, the browser will open locally
+# and ports will be forwarded automatically
+$ bankshot wrap -- gcloud auth login
+```
+
+### Development Server
+```bash
+# Auto-forward all ports
+$ bankshot wrap -- npm run dev
+
+# Or manually forward specific port
+$ bankshot forward 3000
+
+# Forward to different local port
+$ bankshot forward 8080:9090
+```
+
+## Configuration
+
+### Daemon Configuration
+
+Optional config file at `~/.config/bankshot/config.yaml`:
+
+```yaml
+network: unix                    # or "tcp"
+address: ~/.bankshot.sock       # or "127.0.0.1:9999" for tcp
+log_level: info                 # debug, info, warn, error
+```
+
+### Environment Variables
+
+- `BANKSHOT_DEBUG`: Enable debug logging
+- `BANKSHOT_SOCKET`: Override socket path
+
 ## Contributing
 
 Pull requests welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
-
-See [PLAN.md](PLAN.md) for roadmap and priorities.
 
 ## Acknowledgements
 
