@@ -6,13 +6,13 @@
 
 ```bash
 # Add the tap
-brew tap phinze/tap
+brew tap phinze/bankshot
 
 # Install bankshot
-brew install phinze/tap/bankshot
+brew install bankshot
 
 # Start the daemon service
-brew services start phinze/tap/bankshot
+brew services start bankshot
 ```
 
 ### Post-Install Setup
@@ -60,7 +60,7 @@ If the daemon isn't responding:
 
 3. Restart the service:
    ```bash
-   brew services restart phinze/tap/bankshot
+   brew services restart bankshot
    ```
 
 4. Verify socket exists:
@@ -179,9 +179,9 @@ bankshot list                              # List active forwards
 
 ### Via Homebrew
 ```bash
-brew services stop phinze/tap/bankshot
-brew uninstall phinze/tap/bankshot
-brew untap phinze/tap
+brew services stop bankshot
+brew uninstall bankshot
+brew untap phinze/bankshot
 ```
 
 ### Manual Uninstall

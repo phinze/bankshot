@@ -26,9 +26,9 @@ Components:
 ### macOS (Homebrew)
 
 ```bash
-brew tap phinze/tap
-brew install phinze/tap/bankshot
-brew services start phinze/tap/bankshot
+brew tap phinze/bankshot
+brew install bankshot
+brew services start bankshot
 ```
 
 ### Linux/Unix
