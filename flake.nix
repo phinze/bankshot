@@ -11,23 +11,27 @@
     nixpkgs,
     flake-utils,
   }:
-    flake-utils.lib.eachDefaultSystem (system: let
+    {
+      # Home Manager module
+      homeManagerModules.default = ./nix/home-manager;
+      homeManagerModules.bankshot = ./nix/home-manager;
+    }
+    // flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
     in {
       # Note: This flake provides a Nix package for bankshot.
       # Official releases are built using goreleaser (.goreleaser.yml).
       # This package definition ensures Nix users can install bankshot
       # with consistent build flags and behavior.
-      packages = {
-        default = pkgs.buildGoModule rec {
+      packages = rec {
+        bankshot = pkgs.buildGoModule rec {
           pname = "bankshot";
-          version = 
-            if (self ? lastModifiedDate && self ? shortRev) then
-              "${builtins.substring 0 8 self.lastModifiedDate}-${self.shortRev}"
-            else if (self ? lastModifiedDate) then
-              builtins.substring 0 8 self.lastModifiedDate
-            else
-              "dev";
+          version =
+            if (self ? lastModifiedDate && self ? shortRev)
+            then "${builtins.substring 0 8 self.lastModifiedDate}-${self.shortRev}"
+            else if (self ? lastModifiedDate)
+            then builtins.substring 0 8 self.lastModifiedDate
+            else "dev";
 
           src = ./.;
 
@@ -41,7 +45,8 @@
 
           # Build flags aligned with goreleaser configuration
           ldflags = [
-            "-s" "-w"  # Strip debug info to match goreleaser
+            "-s"
+            "-w" # Strip debug info to match goreleaser
             "-X github.com/phinze/bankshot/version.Version=${version}"
             "-X github.com/phinze/bankshot/version.Commit=${self.shortRev or self.dirtyShortRev or "unknown"}"
             "-X github.com/phinze/bankshot/version.Date=${self.lastModifiedDate or "1970-01-01"}"
@@ -51,7 +56,6 @@
           # Build both binaries
           subPackages = ["cmd/bankshot" "cmd/bankshotd"];
 
-
           meta = with pkgs.lib; {
             description = "Automatic SSH port forwarding for remote development";
             homepage = "https://github.com/phinze/bankshot";
@@ -60,6 +64,7 @@
             mainProgram = "bankshot";
           };
         };
+        default = bankshot;
       };
 
       apps.default = flake-utils.lib.mkApp {
@@ -84,4 +89,3 @@
       };
     });
 }
-
