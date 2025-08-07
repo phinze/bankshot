@@ -36,7 +36,7 @@
             then builtins.substring 0 8 self.lastModifiedDate
             else "dev";
 
-          src = ./.;
+          src = builtins.path { path = ./.; name = "bankshot-source"; };
 
           vendorHash = "sha256-hk8r/K4AA1Bt/ghEFt0oRYb1zm2SFfoI0R2Yik4SoIs=";
 
