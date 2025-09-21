@@ -24,15 +24,17 @@ import (
 
 // Daemon represents the bankshot daemon
 type Daemon struct {
-	config    *config.Config
-	listener  net.Listener
-	logger    *slog.Logger
-	wg        sync.WaitGroup
-	ctx       context.Context
-	cancel    context.CancelFunc
-	opener    *opener.Opener
-	forwarder *forwarder.Forwarder
-	startTime time.Time
+	config      *config.Config
+	listener    net.Listener
+	logger      *slog.Logger
+	wg          sync.WaitGroup
+	ctx         context.Context
+	cancel      context.CancelFunc
+	opener      *opener.Opener
+	forwarder   *forwarder.Forwarder
+	startTime   time.Time
+	systemdMode bool   // Running under systemd
+	pidFile     string // PID file path
 }
 
 // New creates a new daemon instance
@@ -88,8 +90,8 @@ func (d *Daemon) Run() error {
 		}
 	}
 
-	// Start listener
-	listener, err := net.Listen(d.config.Network, d.config.Address)
+	// Start listener (with systemd socket activation if available)
+	listener, err := d.getListenerWithActivation()
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
 	}
@@ -108,6 +110,15 @@ func (d *Daemon) Run() error {
 	// Start accepting connections
 	d.wg.Add(1)
 	go d.acceptConnections()
+
+	// Notify systemd we're ready
+	if d.systemdMode {
+		d.notifySystemd("READY=1")
+		d.notifySystemd("STATUS=Bankshot daemon running")
+		
+		// Start watchdog if configured
+		go d.watchdogLoop()
+	}
 
 	// Wait for shutdown signal
 	select {
@@ -406,6 +417,12 @@ func (d *Daemon) sendResponse(conn net.Conn, resp *protocol.Response) {
 // shutdown gracefully shuts down the daemon
 func (d *Daemon) shutdown() error {
 	d.logger.Info("Shutting down daemon")
+
+	// Notify systemd we're stopping
+	if d.systemdMode {
+		d.notifySystemd("STOPPING=1")
+		d.notifySystemd("STATUS=Shutting down")
+	}
 
 	// Cancel context to stop accepting new connections
 	d.cancel()

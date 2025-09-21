@@ -1,80 +1,76 @@
 package cli
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"time"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/google/uuid"
-	"github.com/phinze/bankshot/pkg/protocol"
 	"github.com/spf13/cobra"
 )
 
-var monitorInterval int
+var (
+	sessionID    string
+	pollInterval string
+	gracePeriod  string
+)
 
 func newMonitorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "monitor",
-		Short: "Monitor port forward status continuously",
-		Long:  `Continuously monitors and displays the status of port forwards.`,
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			clearScreen := "\033[2J\033[H"
-
-			for {
-				fmt.Print(clearScreen)
-
-				req := protocol.Request{
-					ID:   uuid.New().String(),
-					Type: protocol.CommandStatus,
-				}
-
-				resp, err := sendRequest(&req)
-				if err != nil {
-					fmt.Printf("Error getting status: %v\n", err)
-				} else if !resp.Success {
-					fmt.Printf("Failed to get status: %s\n", resp.Error)
-				} else {
-					var status protocol.StatusResponse
-					if err := json.Unmarshal(resp.Data, &status); err == nil {
-						fmt.Printf("Bankshot Monitor - %s\n", time.Now().Format("15:04:05"))
-						fmt.Printf("════════════════════════════════════════\n")
-						fmt.Printf("Daemon Uptime: %s | Active Forwards: %d\n", status.Uptime, status.ActiveForwards)
-
-						if len(status.Connections) > 0 {
-							fmt.Printf("\nActive Connections:\n")
-							for _, conn := range status.Connections {
-								fmt.Printf("  • %s: %d forwards\n", conn.ConnectionInfo, conn.ForwardCount)
-							}
-						}
-					}
-				}
-
-				req = protocol.Request{
-					ID:   uuid.New().String(),
-					Type: protocol.CommandList,
-				}
-
-				resp, err = sendRequest(&req)
-				if err == nil && resp.Success {
-					var list protocol.ListResponse
-					if err := json.Unmarshal(resp.Data, &list); err == nil && len(list.Forwards) > 0 {
-						fmt.Printf("\nPort Forwards:\n")
-						for _, fw := range list.Forwards {
-							fmt.Printf("  • [%s] %s:%d → localhost:%d\n",
-								fw.ConnectionInfo, fw.Host, fw.RemotePort, fw.LocalPort)
-						}
-					}
-				}
-
-				fmt.Printf("\nPress Ctrl+C to exit")
-
-				time.Sleep(time.Duration(monitorInterval) * time.Second)
-			}
-		},
+		Short: "Monitor local processes and request port forwards",
+		Long: `Monitor all processes owned by the current user and automatically
+request port forwards when they bind to ports. This command is typically
+started automatically by the shell integration in SSH sessions.`,
+		RunE: runMonitor,
 	}
 
-	cmd.Flags().IntVarP(&monitorInterval, "interval", "i", 2, "Update interval in seconds")
+	cmd.Flags().StringVar(&sessionID, "session", "", "Session ID for this monitor instance")
+	cmd.Flags().StringVar(&pollInterval, "poll-interval", "1s", "Polling interval for process discovery")
+	cmd.Flags().StringVar(&gracePeriod, "grace-period", "30s", "Grace period before removing forwards")
 
 	return cmd
+}
+
+func runMonitor(cmd *cobra.Command, args []string) error {
+	// Get session ID from flag or environment
+	if sessionID == "" {
+		sessionID = os.Getenv("BANKSHOT_SESSION")
+	}
+	if sessionID == "" {
+		return fmt.Errorf("session ID required (use --session or set BANKSHOT_SESSION)")
+	}
+
+	// TODO: Implement monitor logic
+	// For now, just print a message to show it's working
+	fmt.Printf("Starting monitor for session: %s\n", sessionID)
+	fmt.Printf("Poll interval: %s\n", pollInterval)
+	fmt.Printf("Grace period: %s\n", gracePeriod)
+
+	// Set up signal handling
+	ctx, cancel := context.WithCancel(context.Background())
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		if verbose {
+			fmt.Fprintln(os.Stderr, "Monitor received shutdown signal")
+		}
+		cancel()
+	}()
+
+	// TODO: Implement the actual monitoring logic
+	// This will:
+	// 1. Discover all processes owned by the current user
+	// 2. Monitor their port bindings
+	// 3. Request forwards from the daemon when new ports are detected
+	// 4. Clean up forwards when processes exit
+
+	// For now, just wait for context cancellation
+	<-ctx.Done()
+
+	fmt.Println("Monitor shutting down")
+	return nil
 }
