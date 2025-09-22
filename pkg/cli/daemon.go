@@ -60,10 +60,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		PIDFile:     pidFile,
 	}
 
-	// Create and initialize daemon
-	d, err := daemon.NewWithConfig(cfg)
+	// Create and initialize bankshotd (simplified daemon for remote server)
+	d, err := daemon.NewBankshotD(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create daemon: %w", err)
+		return fmt.Errorf("failed to create bankshotd: %w", err)
 	}
 
 	// Set up signal handling
@@ -79,9 +79,9 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	// Start the daemon
+	// Start bankshotd
 	if err := d.Start(ctx); err != nil {
-		return fmt.Errorf("daemon failed: %w", err)
+		return fmt.Errorf("bankshotd failed: %w", err)
 	}
 
 	return nil
