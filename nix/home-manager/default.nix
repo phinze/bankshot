@@ -44,12 +44,6 @@ in {
         description = "Start the daemon automatically on user login";
       };
 
-      socketActivation = mkOption {
-        type = types.bool;
-        default = true;
-        description = "Use systemd socket activation for on-demand startup";
-      };
-
       logLevel = mkOption {
         type = types.enum ["debug" "info" "warn" "error"];
         default = "info";
@@ -138,8 +132,6 @@ in {
         Description = "Bankshotd automatic port forwarding daemon";
         Documentation = "https://github.com/phinze/bankshot";
         After = ["network.target"];
-      } // optionalAttrs cfg.daemon.socketActivation {
-        Requires = ["bankshotd.socket"];
       };
 
       Service = {
@@ -153,7 +145,6 @@ in {
         ProtectSystem = "strict";
         ProtectHome = "read-only";
         ReadWritePaths = [
-          "%t/bankshotd"
           "%h/.config/bankshot"
         ];
         
@@ -164,7 +155,6 @@ in {
         # Environment
         Environment = [
           "BANKSHOT_CONFIG=${configFile}"
-          "BANKSHOT_RUNTIME_DIR=%t/bankshotd"
         ];
       };
 
@@ -173,23 +163,6 @@ in {
       };
     };
 
-    # Systemd socket for daemon
-    systemd.user.sockets.bankshotd = mkIf (cfg.daemon.enable && cfg.daemon.socketActivation) {
-      Unit = {
-        Description = "Bankshotd socket";
-        Documentation = "https://github.com/phinze/bankshot";
-      };
-
-      Socket = {
-        ListenStream = "%t/bankshotd/daemon.sock";
-        RuntimeDirectory = "bankshotd";
-        RuntimeDirectoryMode = "0700";
-      };
-
-      Install = {
-        WantedBy = ["sockets.target"];
-      };
-    };
 
     # SSH session monitor service template
     systemd.user.services."bankshot-monitor@" = mkIf cfg.monitor.enable {
@@ -244,19 +217,35 @@ in {
       fi
     '';
 
-    # Configuration file
+    # Configuration file  
     xdg.configFile."bankshot/config.yaml" = {
-      text = builtins.toJSON ({
-        network = "unix";
-        address = "%t/bankshotd/daemon.sock";
-        log_level = cfg.daemon.logLevel;
-        monitor = {
-          portRanges = cfg.monitor.portRanges;
-          ignoreProcesses = cfg.monitor.ignoreProcesses;
-          pollInterval = cfg.monitor.pollInterval;
-          gracePeriod = cfg.monitor.gracePeriod;
-        };
-      } // cfg.settings);
+      text = ''
+        # Bankshot daemon configuration
+        network: unix
+        address: ~/.bankshot.sock
+        log_level: ${cfg.daemon.logLevel}
+        ssh_command: ssh
+        ${optionalString cfg.monitor.enable ''
+        monitor:
+          portRanges:
+        ${lib.concatMapStrings (range: ''
+            - start: ${toString range.start}
+              end: ${toString range.end}
+        '') cfg.monitor.portRanges}
+          ignoreProcesses:
+        ${lib.concatMapStrings (proc: ''
+            - ${proc}
+        '') cfg.monitor.ignoreProcesses}
+          pollInterval: ${cfg.monitor.pollInterval}
+          gracePeriod: ${cfg.monitor.gracePeriod}
+        ''}
+        ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value: 
+          if builtins.isAttrs value then
+            "${name}:\n${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "  ${k}: ${toString v}") value)}"
+          else
+            "${name}: ${toString value}"
+        ) cfg.settings)}
+      '';
     };
 
     # Ensure ~/.local/bin is in PATH for xdg-open symlink
