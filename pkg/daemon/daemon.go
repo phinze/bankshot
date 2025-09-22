@@ -59,6 +59,15 @@ func (d *Daemon) Run() error {
 
 	// Clean up existing socket if unix
 	if d.config.Network == "unix" {
+		// Expand tilde in address if present
+		if len(d.config.Address) > 0 && d.config.Address[0] == '~' {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get home directory: %w", err)
+			}
+			d.config.Address = filepath.Join(home, d.config.Address[1:])
+		}
+
 		// Check if another daemon is already running
 		if err := d.checkExistingDaemon(); err != nil {
 			return err
