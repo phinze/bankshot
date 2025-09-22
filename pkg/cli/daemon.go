@@ -20,15 +20,16 @@ var (
 func newDaemonCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
-		Short: "Run the bankshot daemon (used by systemd)",
-		Long: `Run the bankshot daemon process. This command is typically called by systemd.
+		Short: "Run the bankshotd daemon (used by systemd)",
+		Long: `Run the bankshotd daemon process. This command is typically called by systemd
+on remote servers to automatically detect and forward ports.
 
 For manual control, use systemctl:
-  systemctl --user start bankshot-daemon    # Start daemon
-  systemctl --user stop bankshot-daemon     # Stop daemon
-  systemctl --user status bankshot-daemon   # Check status
-  systemctl --user restart bankshot-daemon  # Restart daemon
-  journalctl --user -u bankshot-daemon      # View logs`,
+  systemctl --user start bankshotd    # Start daemon
+  systemctl --user stop bankshotd     # Stop daemon
+  systemctl --user status bankshotd   # Check status
+  systemctl --user restart bankshotd  # Restart daemon
+  journalctl --user -u bankshotd      # View logs`,
 	}
 
 	cmd.AddCommand(newDaemonRunCmd())

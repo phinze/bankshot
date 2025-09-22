@@ -133,13 +133,13 @@ in {
     };
 
     # Systemd user service for daemon
-    systemd.user.services.bankshot-daemon = mkIf cfg.daemon.enable {
+    systemd.user.services.bankshotd = mkIf cfg.daemon.enable {
       Unit = {
-        Description = "Bankshot SSH port forwarding daemon";
+        Description = "Bankshotd automatic port forwarding daemon";
         Documentation = "https://github.com/phinze/bankshot";
         After = ["network.target"];
       } // optionalAttrs cfg.daemon.socketActivation {
-        Requires = ["bankshot-daemon.socket"];
+        Requires = ["bankshotd.socket"];
       };
 
       Service = {
@@ -153,7 +153,7 @@ in {
         ProtectSystem = "strict";
         ProtectHome = "read-only";
         ReadWritePaths = [
-          "%t/bankshot"
+          "%t/bankshotd"
           "%h/.config/bankshot"
         ];
         
@@ -164,7 +164,7 @@ in {
         # Environment
         Environment = [
           "BANKSHOT_CONFIG=${configFile}"
-          "BANKSHOT_RUNTIME_DIR=%t/bankshot"
+          "BANKSHOT_RUNTIME_DIR=%t/bankshotd"
         ];
       };
 
@@ -174,15 +174,15 @@ in {
     };
 
     # Systemd socket for daemon
-    systemd.user.sockets.bankshot-daemon = mkIf (cfg.daemon.enable && cfg.daemon.socketActivation) {
+    systemd.user.sockets.bankshotd = mkIf (cfg.daemon.enable && cfg.daemon.socketActivation) {
       Unit = {
-        Description = "Bankshot daemon socket";
+        Description = "Bankshotd socket";
         Documentation = "https://github.com/phinze/bankshot";
       };
 
       Socket = {
-        ListenStream = "%t/bankshot/daemon.sock";
-        RuntimeDirectory = "bankshot";
+        ListenStream = "%t/bankshotd/daemon.sock";
+        RuntimeDirectory = "bankshotd";
         RuntimeDirectoryMode = "0700";
       };
 
@@ -195,8 +195,8 @@ in {
     systemd.user.services."bankshot-monitor@" = mkIf cfg.monitor.enable {
       Unit = {
         Description = "Bankshot port monitor for SSH session %i";
-        BindsTo = ["bankshot-daemon.service"];
-        After = ["bankshot-daemon.service"];
+        BindsTo = ["bankshotd.service"];
+        After = ["bankshotd.service"];
       };
 
       Service = {
@@ -248,7 +248,7 @@ in {
     xdg.configFile."bankshot/config.yaml" = {
       text = builtins.toJSON ({
         network = "unix";
-        address = "%t/bankshot/daemon.sock";
+        address = "%t/bankshotd/daemon.sock";
         log_level = cfg.daemon.logLevel;
         monitor = {
           portRanges = cfg.monitor.portRanges;
