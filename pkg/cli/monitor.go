@@ -2,11 +2,17 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
+	"github.com/phinze/bankshot/pkg/monitor"
+	"github.com/phinze/bankshot/pkg/protocol"
 	"github.com/spf13/cobra"
 )
 
@@ -42,11 +48,72 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("session ID required (use --session or set BANKSHOT_SESSION)")
 	}
 
-	// TODO: Implement monitor logic
-	// For now, just print a message to show it's working
-	fmt.Printf("Starting monitor for session: %s\n", sessionID)
-	fmt.Printf("Poll interval: %s\n", pollInterval)
-	fmt.Printf("Grace period: %s\n", gracePeriod)
+	// Parse durations
+	pollDuration, err := time.ParseDuration(pollInterval)
+	if err != nil {
+		return fmt.Errorf("invalid poll interval: %w", err)
+	}
+
+	graceDuration, err := time.ParseDuration(gracePeriod)
+	if err != nil {
+		return fmt.Errorf("invalid grace period: %w", err)
+	}
+
+	// Parse port ranges from environment
+	portRangesJSON := os.Getenv("BANKSHOT_MONITOR_PORT_RANGES")
+	var portRanges []monitor.PortRange
+	if portRangesJSON != "" {
+		if err := json.Unmarshal([]byte(portRangesJSON), &portRanges); err != nil {
+			return fmt.Errorf("failed to parse port ranges: %w", err)
+		}
+	} else {
+		// Default port ranges
+		portRanges = []monitor.PortRange{
+			{Start: 3000, End: 9999},
+		}
+	}
+
+	// Parse ignore list from environment
+	ignoreList := []string{"sshd", "systemd", "ssh-agent"}
+	ignoreEnv := os.Getenv("BANKSHOT_MONITOR_IGNORE")
+	if ignoreEnv != "" {
+		ignoreList = strings.Split(ignoreEnv, ",")
+	}
+
+	// Set up logger
+	logLevel := slog.LevelInfo
+	if verbose {
+		logLevel = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+
+	// Create daemon client
+	daemonClient := &cliDaemonClient{
+		logger: logger,
+	}
+
+	// Create session monitor
+	sessionMonitor, err := monitor.NewSessionMonitor(monitor.SessionConfig{
+		SessionID:       sessionID,
+		DaemonClient:    daemonClient,
+		PortRanges:      portRanges,
+		IgnoreProcesses: ignoreList,
+		PollInterval:    pollDuration,
+		GracePeriod:     graceDuration,
+		Logger:          logger,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create session monitor: %w", err)
+	}
+
+	logger.Info("Starting monitor",
+		"session", sessionID,
+		"pollInterval", pollInterval,
+		"gracePeriod", gracePeriod,
+		"portRanges", portRanges,
+		"ignoreProcesses", ignoreList)
 
 	// Set up signal handling
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,22 +122,24 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		<-sigChan
-		if verbose {
-			fmt.Fprintln(os.Stderr, "Monitor received shutdown signal")
-		}
+		logger.Info("Monitor received shutdown signal")
 		cancel()
 	}()
 
-	// TODO: Implement the actual monitoring logic
-	// This will:
-	// 1. Discover all processes owned by the current user
-	// 2. Monitor their port bindings
-	// 3. Request forwards from the daemon when new ports are detected
-	// 4. Clean up forwards when processes exit
+	// Start monitoring
+	if err := sessionMonitor.Start(ctx); err != nil {
+		return fmt.Errorf("monitor failed: %w", err)
+	}
 
-	// For now, just wait for context cancellation
-	<-ctx.Done()
-
-	fmt.Println("Monitor shutting down")
+	logger.Info("Monitor shutdown complete")
 	return nil
+}
+
+// cliDaemonClient implements the DaemonClient interface for CLI
+type cliDaemonClient struct {
+	logger *slog.Logger
+}
+
+func (c *cliDaemonClient) SendRequest(req *protocol.Request) (*protocol.Response, error) {
+	return sendRequest(req)
 }

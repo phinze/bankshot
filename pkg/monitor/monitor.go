@@ -9,9 +9,13 @@ import (
 
 // PortEvent represents a port state change
 type PortEvent struct {
-	Port      Port
-	EventType EventType
-	Timestamp time.Time
+	Type        EventType
+	PID         int
+	Port        int
+	Protocol    string
+	ProcessName string
+	ProcessCmd  string
+	Timestamp   time.Time
 }
 
 // EventType represents the type of port event
@@ -132,8 +136,10 @@ func (m *Monitor) checkPorts() {
 			delete(m.pendingPorts, portNum)
 
 			event := PortEvent{
-				Port:      knownPort,
-				EventType: PortClosed,
+				Type:      PortClosed,
+				PID:       m.pid,
+				Port:      knownPort.Port,
+				Protocol:  knownPort.Protocol,
 				Timestamp: time.Now(),
 			}
 
@@ -187,8 +193,10 @@ func (m *Monitor) processPendingPorts() {
 					delete(m.pendingPorts, portNum)
 
 					event := PortEvent{
-						Port:      port,
-						EventType: PortOpened,
+						Type:      PortOpened,
+						PID:       m.pid,
+						Port:      port.Port,
+						Protocol:  port.Protocol,
 						Timestamp: time.Now(),
 					}
 

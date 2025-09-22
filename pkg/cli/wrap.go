@@ -113,31 +113,31 @@ Examples:
 
 			go func() {
 				for event := range portMon.Events() {
-					switch event.EventType {
+					switch event.Type {
 					case monitor.PortOpened:
 						// Skip if port was already forwarded before wrap started
-						if existingPorts[event.Port.Port] {
+						if existingPorts[event.Port] {
 							if verbose {
-								fmt.Printf("Port %d already forwarded, skipping\n", event.Port.Port)
+								fmt.Printf("Port %d already forwarded, skipping\n", event.Port)
 							}
 							continue
 						}
 
 						// Skip if we already forwarded this port
-						if ourForwardedPorts[event.Port.Port] {
+						if ourForwardedPorts[event.Port] {
 							continue
 						}
 
-						req := createForwardRequest(event.Port.Port, event.Port.Port, connectionInfo)
+						req := createForwardRequest(event.Port, event.Port, connectionInfo)
 						resp, err := sendRequest(&req)
 						if err != nil {
 							if verbose {
-								fmt.Fprintf(os.Stderr, "Failed to forward port %d: %v\n", event.Port.Port, err)
+								fmt.Fprintf(os.Stderr, "Failed to forward port %d: %v\n", event.Port, err)
 							}
 						} else if resp.Success {
-							ourForwardedPorts[event.Port.Port] = true
+							ourForwardedPorts[event.Port] = true
 							if verbose {
-								fmt.Printf("Auto-forwarded port %d\n", event.Port.Port)
+								fmt.Printf("Auto-forwarded port %d\n", event.Port)
 							}
 						}
 					case monitor.PortClosed:
