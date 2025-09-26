@@ -67,17 +67,22 @@ in {
       portRanges = mkOption {
         type = types.listOf (types.submodule {
           options = {
-            start = mkOption { 
+            start = mkOption {
               type = types.int;
               description = "Start of port range";
             };
-            end = mkOption { 
+            end = mkOption {
               type = types.int;
               description = "End of port range";
             };
           };
         });
-        default = [{ start = 3000; end = 9999; }];
+        default = [
+          {
+            start = 3000;
+            end = 9999;
+          }
+        ];
         description = "Port ranges to automatically forward";
       };
 
@@ -139,7 +144,7 @@ in {
         ExecStart = "${cfg.package}/bin/bankshot daemon run --systemd --log-level ${cfg.daemon.logLevel}";
         Restart = "on-failure";
         RestartSec = "5s";
-        
+
         # Security hardening
         PrivateTmp = true;
         ProtectSystem = "strict";
@@ -147,11 +152,11 @@ in {
         ReadWritePaths = [
           "%h/.config/bankshot"
         ];
-        
+
         # Resource limits
         MemoryMax = "256M";
         CPUQuota = "20%";
-        
+
         # Environment
         Environment = [
           "BANKSHOT_CONFIG=${configFile}"
@@ -162,7 +167,6 @@ in {
         WantedBy = ["default.target"];
       };
     };
-
 
     # SSH session monitor service template
     systemd.user.services."bankshot-monitor@" = mkIf cfg.monitor.enable {
@@ -177,7 +181,7 @@ in {
         ExecStart = "${cfg.package}/bin/bankshot monitor --session %i";
         Restart = "on-failure";
         RestartSec = "5s";
-        
+
         # Pass monitor configuration
         Environment = [
           "BANKSHOT_MONITOR_POLL_INTERVAL=${cfg.monitor.pollInterval}"
@@ -193,10 +197,10 @@ in {
       if [ -n "$SSH_CONNECTION" ] && command -v bankshot >/dev/null 2>&1; then
         # Generate unique session ID
         export BANKSHOT_SESSION="''${USER}-$$-$(date +%s)"
-        
+
         # Start monitor for this session
         systemctl --user start "bankshot-monitor@$BANKSHOT_SESSION.service" 2>/dev/null || true
-        
+
         # Cleanup on exit
         trap 'systemctl --user stop "bankshot-monitor@$BANKSHOT_SESSION.service" 2>/dev/null || true' EXIT
       fi
@@ -204,12 +208,12 @@ in {
 
     programs.zsh.initExtra = mkIf (cfg.monitor.enable && cfg.monitor.autoStart) ''
       if [ -n "$SSH_CONNECTION" ] && command -v bankshot >/dev/null 2>&1; then
-        # Generate unique session ID  
+        # Generate unique session ID
         export BANKSHOT_SESSION="''${USER}-$$-$(date +%s)"
-        
+
         # Start monitor for this session
         systemctl --user start "bankshot-monitor@$BANKSHOT_SESSION.service" 2>/dev/null || true
-        
+
         # Cleanup on exit
         zshexit() {
           systemctl --user stop "bankshot-monitor@$BANKSHOT_SESSION.service" 2>/dev/null || true
@@ -217,7 +221,7 @@ in {
       fi
     '';
 
-    # Configuration file  
+    # Configuration file
     xdg.configFile."bankshot/config.yaml" = {
       text = ''
         # Bankshot daemon configuration
@@ -226,25 +230,28 @@ in {
         log_level: ${cfg.daemon.logLevel}
         ssh_command: ssh
         ${optionalString cfg.monitor.enable ''
-        monitor:
-          portRanges:
-        ${lib.concatMapStrings (range: ''
-            - start: ${toString range.start}
-              end: ${toString range.end}
-        '') cfg.monitor.portRanges}
-          ignoreProcesses:
-        ${lib.concatMapStrings (proc: ''
-            - ${proc}
-        '') cfg.monitor.ignoreProcesses}
-          pollInterval: ${cfg.monitor.pollInterval}
-          gracePeriod: ${cfg.monitor.gracePeriod}
+          monitor:
+            portRanges:
+          ${lib.concatMapStrings (range: ''
+              - start: ${toString range.start}
+                end: ${toString range.end}
+            '')
+            cfg.monitor.portRanges}
+            ignoreProcesses:
+          ${lib.concatMapStrings (proc: ''
+              - ${proc}
+            '')
+            cfg.monitor.ignoreProcesses}
+            pollInterval: ${cfg.monitor.pollInterval}
+            gracePeriod: ${cfg.monitor.gracePeriod}
         ''}
-        ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value: 
-          if builtins.isAttrs value then
-            "${name}:\n${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "  ${k}: ${toString v}") value)}"
-          else
-            "${name}: ${toString value}"
-        ) cfg.settings)}
+        ${lib.concatStringsSep "\n" (lib.mapAttrsToList (
+            name: value:
+              if builtins.isAttrs value
+              then "${name}:\n${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "  ${k}: ${toString v}") value)}"
+              else "${name}: ${toString value}"
+          )
+          cfg.settings)}
       '';
     };
 
