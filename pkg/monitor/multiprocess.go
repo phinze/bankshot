@@ -12,7 +12,7 @@ import (
 
 // MultiProcessMonitor monitors ports for multiple processes
 type MultiProcessMonitor struct {
-	monitors    map[int]*Monitor  // PID -> Monitor
+	monitors    map[int]*Monitor // PID -> Monitor
 	discovery   *discovery.ProcessDiscovery
 	logger      *slog.Logger
 	mutex       sync.RWMutex
@@ -77,10 +77,10 @@ func (m *MultiProcessMonitor) updateMonitors(ctx context.Context) error {
 			m.logger.Debug("Starting monitor for process",
 				"pid", proc.PID,
 				"name", proc.Name)
-			
+
 			monitor := New(proc.PID, m.logger)
 			m.monitors[proc.PID] = monitor
-			
+
 			// Start monitoring in background
 			go m.monitorProcess(ctx, monitor, proc)
 		}
@@ -103,7 +103,7 @@ func (m *MultiProcessMonitor) monitorProcess(ctx context.Context, monitor *Monit
 	// Start the monitor with a cancellable context
 	monitorCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	
+
 	if err := monitor.Start(monitorCtx); err != nil {
 		m.logger.Error("Failed to start monitor", "pid", proc.PID, "error", err)
 		return
@@ -118,16 +118,16 @@ func (m *MultiProcessMonitor) monitorProcess(ctx context.Context, monitor *Monit
 
 		// Deduplicate events
 		eventKey := fmt.Sprintf("%d:%d:%s", event.PID, event.Port, event.Type)
-		
+
 		m.mutex.Lock()
 		lastTime, exists := m.debounceMap[eventKey]
 		now := time.Now()
-		
+
 		// Only emit if this is a new event or enough time has passed
 		if !exists || now.Sub(lastTime) > 100*time.Millisecond {
 			m.debounceMap[eventKey] = now
 			m.mutex.Unlock()
-			
+
 			// Forward event
 			select {
 			case m.events <- event:

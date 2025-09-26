@@ -15,16 +15,16 @@ import (
 
 // SessionMonitor manages port forwarding for an SSH session
 type SessionMonitor struct {
-	sessionID        string
-	multiMonitor     *MultiProcessMonitor
-	daemonClient     DaemonClient
-	logger           *slog.Logger
-	portRanges       []PortRange
-	ignoreProcesses  []string
-	gracePeriod      time.Duration
-	activeForwards   map[string]ForwardInfo // key: "pid:port"
-	pendingRemovals  map[string]time.Time    // forwards pending removal
-	mutex            sync.RWMutex
+	sessionID       string
+	multiMonitor    *MultiProcessMonitor
+	daemonClient    DaemonClient
+	logger          *slog.Logger
+	portRanges      []PortRange
+	ignoreProcesses []string
+	gracePeriod     time.Duration
+	activeForwards  map[string]ForwardInfo // key: "pid:port"
+	pendingRemovals map[string]time.Time   // forwards pending removal
+	mutex           sync.RWMutex
 }
 
 // PortRange defines a range of ports to auto-forward

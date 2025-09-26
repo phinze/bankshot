@@ -39,7 +39,7 @@ func NewWithConfig(daemonConfig Config) (*Daemon, error) {
 
 	// Create daemon with existing New function
 	d := New(cfg, logger)
-	
+
 	// Add systemd-specific configuration
 	d.systemdMode = daemonConfig.SystemdMode
 	d.pidFile = daemonConfig.PIDFile

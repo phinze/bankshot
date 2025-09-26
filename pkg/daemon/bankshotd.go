@@ -63,14 +63,14 @@ func (d *BankshotD) Start(ctx context.Context) error {
 	if d.systemdMode {
 		d.notifySystemd("READY=1")
 		d.notifySystemd("STATUS=Bankshotd is running")
-		
+
 		// Start watchdog if configured
 		go d.watchdogLoop()
 	}
 
 	// Just wait for shutdown signal
 	<-ctx.Done()
-	
+
 	// Notify systemd we're stopping
 	if d.systemdMode {
 		d.notifySystemd("STOPPING=1")

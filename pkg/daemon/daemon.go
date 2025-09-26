@@ -124,7 +124,7 @@ func (d *Daemon) Run() error {
 	if d.systemdMode {
 		d.notifySystemd("READY=1")
 		d.notifySystemd("STATUS=Bankshot daemon running")
-		
+
 		// Start watchdog if configured
 		go d.watchdogLoop()
 	}

@@ -27,7 +27,7 @@ func newStatusCmd() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "Bankshotd: %v\n", err)
 				}
 			}
-			
+
 			req := protocol.Request{
 				ID:   uuid.New().String(),
 				Type: protocol.CommandStatus,
@@ -63,7 +63,7 @@ func newStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
-	
+
 	return cmd
 }
 
@@ -79,19 +79,19 @@ func showBankshotdStatus() error {
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	
+
 	isActive := cmd.Run() == nil
 	status := strings.TrimSpace(out.String())
-	
+
 	// Get more detailed status
 	cmd = exec.Command("systemctl", "--user", "status", "bankshotd", "--no-pager", "-n", "0")
 	out.Reset()
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	cmd.Run() // Ignore error as it returns non-zero for inactive services
-	
+
 	statusOutput := out.String()
-	
+
 	// Parse the output to get key information
 	var uptime, memory, cpu string
 	lines := strings.Split(statusOutput, "\n")
@@ -119,7 +119,7 @@ func showBankshotdStatus() error {
 			}
 		}
 	}
-	
+
 	// Display bankshotd status
 	fmt.Printf("Bankshotd Status:\n")
 	if isActive && status == "active" {
@@ -140,7 +140,7 @@ func showBankshotdStatus() error {
 	} else {
 		fmt.Printf("  State: \033[33m?\033[0m %s\n", status)
 	}
-	
+
 	// Check for any active monitor sessions
 	cmd = exec.Command("systemctl", "--user", "list-units", "bankshot-monitor@*.service", "--no-legend", "--no-pager")
 	out.Reset()
@@ -160,7 +160,7 @@ func showBankshotdStatus() error {
 			}
 		}
 	}
-	
+
 	fmt.Println() // Empty line separator
 	return nil
 }
