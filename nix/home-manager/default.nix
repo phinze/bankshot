@@ -229,18 +229,17 @@ in {
         address: ~/.bankshot.sock
         log_level: ${cfg.daemon.logLevel}
         ssh_command: ssh
-        ${optionalString cfg.monitor.enable ''
+${optionalString cfg.monitor.enable ''
         monitor:
-          portRanges:
-        ${lib.concatMapStrings (range: ''
+          portRanges:${lib.concatMapStrings (range: ''
+    
             - start: ${toString range.start}
-              end: ${toString range.end}
-        '') cfg.monitor.portRanges}  ignoreProcesses:
-        ${lib.concatMapStrings (proc: ''
-            - ${proc}
-        '') cfg.monitor.ignoreProcesses}  pollInterval: ${cfg.monitor.pollInterval}
-          gracePeriod: ${cfg.monitor.gracePeriod}
-        ''}
+              end: ${toString range.end}'') cfg.monitor.portRanges}
+          ignoreProcesses:${lib.concatMapStrings (proc: ''
+    
+            - ${proc}'') cfg.monitor.ignoreProcesses}
+          pollInterval: ${cfg.monitor.pollInterval}
+          gracePeriod: ${cfg.monitor.gracePeriod}''}
         ${lib.concatStringsSep "\n" (lib.mapAttrsToList (
             name: value:
               if builtins.isAttrs value
