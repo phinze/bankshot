@@ -24,6 +24,23 @@ type Config struct {
 
 	// SSHCommand is the path to ssh binary
 	SSHCommand string `yaml:"ssh_command"`
+
+	// Monitor configuration (for bankshotd)
+	Monitor MonitorConfig `yaml:"monitor,omitempty"`
+}
+
+// MonitorConfig represents the monitor configuration for bankshotd
+type MonitorConfig struct {
+	PortRanges      []PortRange `yaml:"portRanges,omitempty"`
+	IgnoreProcesses []string    `yaml:"ignoreProcesses,omitempty"`
+	PollInterval    string      `yaml:"pollInterval,omitempty"`
+	GracePeriod     string      `yaml:"gracePeriod,omitempty"`
+}
+
+// PortRange defines a range of ports
+type PortRange struct {
+	Start int `yaml:"start"`
+	End   int `yaml:"end"`
 }
 
 // DefaultConfig returns the default configuration

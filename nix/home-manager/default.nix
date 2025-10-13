@@ -15,14 +15,14 @@ with lib; let
     address = "~/.bankshot.sock";
     log_level = cfg.daemon.logLevel;
     ssh_command = "ssh";
-  } // (optionalAttrs cfg.monitor.enable {
+  } // {
     monitor = {
       portRanges = cfg.monitor.portRanges;
       ignoreProcesses = cfg.monitor.ignoreProcesses;
       pollInterval = cfg.monitor.pollInterval;
       gracePeriod = cfg.monitor.gracePeriod;
     };
-  }) // cfg.settings;
+  } // cfg.settings;
   
   configFile = yamlFormat.generate "bankshot-config.yaml" configData;
 in {
@@ -69,18 +69,6 @@ in {
     };
 
     monitor = {
-      enable = mkOption {
-        type = types.bool;
-        default = false;
-        description = "Enable automatic port monitoring in SSH sessions";
-      };
-
-      autoStart = mkOption {
-        type = types.bool;
-        default = true;
-        description = "Start monitor automatically in SSH sessions via shell integration";
-      };
-
       portRanges = mkOption {
         type = types.listOf (types.submodule {
           options = {
@@ -100,25 +88,25 @@ in {
             end = 9999;
           }
         ];
-        description = "Port ranges to automatically forward";
+        description = "Port ranges to automatically forward (applies to bankshotd on remote servers)";
       };
 
       ignoreProcesses = mkOption {
         type = types.listOf types.str;
         default = ["sshd" "systemd" "ssh-agent"];
-        description = "Processes to ignore for port forwarding";
+        description = "Processes to ignore for port forwarding (applies to bankshotd on remote servers)";
       };
 
       pollInterval = mkOption {
         type = types.str;
         default = "1s";
-        description = "Polling interval for process discovery";
+        description = "Polling interval for process discovery (applies to bankshotd on remote servers)";
       };
 
       gracePeriod = mkOption {
         type = types.str;
         default = "30s";
-        description = "Grace period before removing forwards after port close";
+        description = "Grace period before removing forwards after port close (applies to bankshotd on remote servers)";
       };
     };
 
@@ -184,59 +172,6 @@ in {
         WantedBy = ["default.target"];
       };
     };
-
-    # SSH session monitor service template
-    systemd.user.services."bankshot-monitor@" = mkIf cfg.monitor.enable {
-      Unit = {
-        Description = "Bankshot port monitor for SSH session %i";
-        BindsTo = ["bankshotd.service"];
-        After = ["bankshotd.service"];
-      };
-
-      Service = {
-        Type = "simple";
-        ExecStart = "${cfg.package}/bin/bankshot monitor --session %i";
-        Restart = "on-failure";
-        RestartSec = "5s";
-
-        # Pass monitor configuration
-        Environment = [
-          "BANKSHOT_MONITOR_POLL_INTERVAL=${cfg.monitor.pollInterval}"
-          "BANKSHOT_MONITOR_GRACE_PERIOD=${cfg.monitor.gracePeriod}"
-          "BANKSHOT_MONITOR_PORT_RANGES=${builtins.toJSON cfg.monitor.portRanges}"
-          "BANKSHOT_MONITOR_IGNORE=${builtins.concatStringsSep "," cfg.monitor.ignoreProcesses}"
-        ];
-      };
-    };
-
-    # Shell integration for automatic monitor startup
-    programs.bash.initExtra = mkIf (cfg.monitor.enable && cfg.monitor.autoStart) ''
-      if [ -n "$SSH_CONNECTION" ] && command -v bankshot >/dev/null 2>&1; then
-        # Generate unique session ID
-        export BANKSHOT_SESSION="''${USER}-$$-$(date +%s)"
-
-        # Start monitor for this session
-        systemctl --user start "bankshot-monitor@$BANKSHOT_SESSION.service" 2>/dev/null || true
-
-        # Cleanup on exit
-        trap 'systemctl --user stop "bankshot-monitor@$BANKSHOT_SESSION.service" 2>/dev/null || true' EXIT
-      fi
-    '';
-
-    programs.zsh.initExtra = mkIf (cfg.monitor.enable && cfg.monitor.autoStart) ''
-      if [ -n "$SSH_CONNECTION" ] && command -v bankshot >/dev/null 2>&1; then
-        # Generate unique session ID
-        export BANKSHOT_SESSION="''${USER}-$$-$(date +%s)"
-
-        # Start monitor for this session
-        systemctl --user start "bankshot-monitor@$BANKSHOT_SESSION.service" 2>/dev/null || true
-
-        # Cleanup on exit
-        zshexit() {
-          systemctl --user stop "bankshot-monitor@$BANKSHOT_SESSION.service" 2>/dev/null || true
-        }
-      fi
-    '';
 
     # Configuration file using pkgs.formats.yaml for proper formatting
     xdg.configFile."bankshot/config.yaml" = {

@@ -7,11 +7,12 @@ Open URLs and manage SSH port forwards from remote development environments.
 `bankshot` enables you to:
 - Open URLs in your local browser from SSH sessions
 - Forward ports dynamically for OAuth flows and development servers
-- Auto-forward ports with the `wrap` command
+- Auto-forward ports automatically when running `bankshotd` on remote servers
 
 Components:
-- **bankshotd**: Local daemon that handles requests
-- **bankshot**: CLI client used in remote SSH sessions
+- **Local daemon**: Runs on your laptop, handles URL opening and SSH port forward execution
+- **bankshotd**: Runs on remote servers, monitors processes and requests forwards automatically
+- **bankshot CLI**: Used in remote SSH sessions for manual operations
 
 ## Installation
 
@@ -75,18 +76,19 @@ bankshot status
 
 ```
 ┌────────────────────┐                 ┌────────────────────┐
-│   Local Machine    │                 │  Remote Machine    │
+│   Local Machine    │                 │  Remote Server     │
 │                    │                 │                    │
 │ ┌────────────────┐ │                 │ ┌────────────────┐ │
-│ │   Web Browser  │ │                 │ │ bankshot (CLI) │ │
-│ └─▲──────────────┘ │                 │ └─┬──────────────┘ │
-│   │ Open URL       │                 │   │ Send command   │
-│ ┌─┴──────────────┐ │                 │   │                │
-│ │bankshot daemon │ │                 │   │                │
+│ │   Web Browser  │ │                 │ │   bankshotd    │ │
+│ └─▲──────────────┘ │                 │ │  - Monitor     │ │
+│   │ Open URL       │                 │ │  - Auto-fwd    │ │
+│ ┌─┴──────────────┐ │                 │ └─┬──────────────┘ │
+│ │ Local Daemon   │ │                 │   │ Send requests  │
 │ │ - URL opener   │ │                 │   │                │
-│ │ - Port forward │ │                 │   │                │
-│ └─┬──────────────┘ │                 │   │                │
-│   │                │                 │   │                │
+│ │ - Port forward │ │                 │ ┌─┴──────────────┐ │
+│ │ - SSH executor │ │                 │ │bankshot (CLI)  │ │
+│ └─┬──────────────┘ │                 │ │ Manual control │ │
+│   │                │                 │ └─┬──────────────┘ │
 │ ┌─┴──────────────┐ │ SSH connection  │ ┌─▼──────────────┐ │
 │ │~/.bankshot.sock│ ├─────────────────► │~/.bankshot.sock│ │
 │ └────────────────┘ │ Remote forward  │ └────────────────┘ │
@@ -94,9 +96,55 @@ bankshot status
 └────────────────────┘                 └────────────────────┘
 ```
 
-- **Daemon**: Handles URL opening and port forwarding on local machine
-- **CLI**: Sends commands from remote SSH sessions
+- **Local Daemon**: Runs on laptop, handles URL opening and SSH port forward execution
+- **bankshotd**: Runs on remote server, monitors processes and auto-forwards ports
+- **CLI**: Manual control from remote SSH sessions
 - **Communication**: JSON over Unix socket (forwarded via SSH)
+
+### Auto-Discovery of Existing Forwards
+
+When the daemon starts, it automatically discovers and registers any existing SSH port forwards. This means:
+
+- If you restart the daemon, it won't lose track of your active forwards
+- Forwards created before the daemon started are automatically detected
+- The daemon scans for SSH ControlMaster processes and their listening ports
+- Discovery happens on startup and registers forwards without re-executing SSH commands
+
+This ensures seamless integration with your existing SSH workflows and prevents forward duplication.
+
+### Automatic Port Forwarding with bankshotd
+
+On remote servers, `bankshotd` automatically forwards ports without needing `bankshot wrap`:
+
+- Monitors all processes owned by your user on the remote server
+- Automatically detects when processes bind to ports
+- Requests forwards from the local daemon immediately
+- Cleans up forwards when processes exit (after a grace period)
+
+**Setup:**
+
+1. Install bankshot on your remote servers
+2. Start `bankshotd` (via systemd or manually)
+3. Any port your processes bind to (in the configured range, default 3000-9999) will be automatically forwarded
+
+**Configuration:**
+
+Configure `bankshotd` behavior in `~/.config/bankshot/config.yaml`:
+
+```yaml
+monitor:
+  portRanges:
+    - start: 3000
+      end: 9999
+  ignoreProcesses:
+    - sshd
+    - systemd
+    - ssh-agent
+  pollInterval: 1s
+  gracePeriod: 30s
+```
+
+With NixOS/home-manager, configure via `programs.bankshot.monitor.*` options.
 
 ## Usage Examples
 
