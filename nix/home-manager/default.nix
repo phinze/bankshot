@@ -7,7 +7,24 @@
 }:
 with lib; let
   cfg = config.programs.bankshot;
-  configFile = pkgs.writeText "bankshot-config.yaml" (builtins.toJSON cfg.settings);
+  yamlFormat = pkgs.formats.yaml {};
+  
+  # Generate the full config data structure
+  configData = {
+    network = "unix";
+    address = "~/.bankshot.sock";
+    log_level = cfg.daemon.logLevel;
+    ssh_command = "ssh";
+  } // (optionalAttrs cfg.monitor.enable {
+    monitor = {
+      portRanges = cfg.monitor.portRanges;
+      ignoreProcesses = cfg.monitor.ignoreProcesses;
+      pollInterval = cfg.monitor.pollInterval;
+      gracePeriod = cfg.monitor.gracePeriod;
+    };
+  }) // cfg.settings;
+  
+  configFile = yamlFormat.generate "bankshot-config.yaml" configData;
 in {
   options.programs.bankshot = {
     enable = mkEnableOption "bankshot - automatic SSH port forwarding";
@@ -221,33 +238,9 @@ in {
       fi
     '';
 
-    # Configuration file
+    # Configuration file using pkgs.formats.yaml for proper formatting
     xdg.configFile."bankshot/config.yaml" = {
-      text = ''
-        # Bankshot daemon configuration
-        network: unix
-        address: ~/.bankshot.sock
-        log_level: ${cfg.daemon.logLevel}
-        ssh_command: ssh
-${optionalString cfg.monitor.enable ''
-        monitor:
-          portRanges:${lib.concatMapStrings (range: ''
-    
-            - start: ${toString range.start}
-              end: ${toString range.end}'') cfg.monitor.portRanges}
-          ignoreProcesses:${lib.concatMapStrings (proc: ''
-    
-            - ${proc}'') cfg.monitor.ignoreProcesses}
-          pollInterval: ${cfg.monitor.pollInterval}
-          gracePeriod: ${cfg.monitor.gracePeriod}''}
-        ${lib.concatStringsSep "\n" (lib.mapAttrsToList (
-            name: value:
-              if builtins.isAttrs value
-              then "${name}:\n${lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "  ${k}: ${toString v}") value)}"
-              else "${name}: ${toString value}"
-          )
-          cfg.settings)}
-      '';
+      source = configFile;
     };
 
     # Ensure ~/.local/bin is in PATH for xdg-open symlink
