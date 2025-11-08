@@ -52,6 +52,11 @@ func NewBankshotD(cfg Config) (*BankshotD, error) {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Validate and expand paths in config (e.g., ~/.bankshot.sock)
+	if err := bankshotConfig.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	return &BankshotD{
 		logger:      logger,
 		systemdMode: cfg.SystemdMode,

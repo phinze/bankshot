@@ -126,19 +126,20 @@ func (m *MultiProcessMonitor) monitorProcess(ctx context.Context, monitor *Monit
 		event.ProcessName = proc.Name
 		event.ProcessCmd = proc.CommandLine
 
-		// Deduplicate events
-		eventKey := fmt.Sprintf("%d:%d:%s", event.PID, event.Port, event.Type)
+		// Deduplicate events by port+type only (not PID)
+		// Multiple processes in the same network namespace will all see the same ports
+		eventKey := fmt.Sprintf("%d:%s", event.Port, event.Type)
 
 		m.mutex.Lock()
 		lastTime, exists := m.debounceMap[eventKey]
 		now := time.Now()
 
 		// Only emit if this is a new event or enough time has passed
-		if !exists || now.Sub(lastTime) > 100*time.Millisecond {
+		if !exists || now.Sub(lastTime) > 5*time.Second {
 			m.debounceMap[eventKey] = now
 			m.mutex.Unlock()
 
-			// Forward event
+			// Forward event (keeping the first PID that reported it)
 			select {
 			case m.events <- event:
 				m.logger.Debug("Port event",

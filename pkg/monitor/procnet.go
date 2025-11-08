@@ -122,6 +122,7 @@ func GetProcessListeningPorts(pid int) ([]Port, error) {
 		allPorts = append(allPorts, tcpPorts...)
 	} else {
 		// Fallback to system-wide if process-specific fails
+		// This will cause duplicates but they'll be filtered at a higher level
 		tcpPorts, _ = parseProcNet("/proc/net/tcp", "tcp")
 		allPorts = append(allPorts, tcpPorts...)
 	}
