@@ -158,7 +158,7 @@ func (m *SessionMonitor) handlePortOpened(key string, event PortEvent) {
 		RemotePort:     event.Port,
 		LocalPort:      event.Port,
 		Host:           "localhost",
-		ConnectionInfo: fmt.Sprintf("session-%s", m.sessionID),
+		ConnectionInfo: m.sessionID, // sessionID is now the hostname for SSH connection matching
 	}
 
 	payloadBytes, _ := json.Marshal(payload)
@@ -259,7 +259,7 @@ func (m *SessionMonitor) removeForward(fwd ForwardInfo) {
 	payload := protocol.UnforwardRequest{
 		RemotePort:     fwd.Port,
 		Host:           "localhost",
-		ConnectionInfo: fmt.Sprintf("session-%s", m.sessionID),
+		ConnectionInfo: m.sessionID, // sessionID is now the hostname for SSH connection matching
 	}
 
 	payloadBytes, _ := json.Marshal(payload)

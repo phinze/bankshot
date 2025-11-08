@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"os/user"
 	"time"
 
 	"github.com/phinze/bankshot/pkg/config"
@@ -84,12 +83,12 @@ func (d *BankshotD) Start(ctx context.Context) error {
 		logger:     d.logger,
 	}
 
-	// Generate session ID based on user
-	currentUser, err := user.Current()
+	// Generate session ID based on hostname (for SSH connection matching)
+	hostname, err := os.Hostname()
 	if err != nil {
-		return fmt.Errorf("failed to get current user: %w", err)
+		return fmt.Errorf("failed to get hostname: %w", err)
 	}
-	sessionID := fmt.Sprintf("%s-%d", currentUser.Username, os.Getpid())
+	sessionID := hostname
 
 	// Parse monitor config from main config
 	portRanges := []monitor.PortRange{{Start: 3000, End: 9999}} // Default
