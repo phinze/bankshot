@@ -12,12 +12,13 @@ import (
 
 // MultiProcessMonitor monitors ports for multiple processes
 type MultiProcessMonitor struct {
-	monitors    map[int]*Monitor // PID -> Monitor
-	discovery   *discovery.ProcessDiscovery
-	logger      *slog.Logger
-	mutex       sync.RWMutex
-	events      chan PortEvent
-	debounceMap map[string]time.Time // For deduplicating events
+	monitors     map[int]*Monitor // PID -> Monitor
+	discovery    *discovery.ProcessDiscovery
+	logger       *slog.Logger
+	mutex        sync.RWMutex
+	events       chan PortEvent
+	debounceMap  map[string]time.Time // For deduplicating events
+	pollInterval time.Duration        // Polling interval for updates
 }
 
 // NewMultiProcessMonitor creates a new multi-process monitor
@@ -28,11 +29,12 @@ func NewMultiProcessMonitor(logger *slog.Logger, pollInterval time.Duration) (*M
 	}
 
 	return &MultiProcessMonitor{
-		monitors:    make(map[int]*Monitor),
-		discovery:   disc,
-		logger:      logger,
-		events:      make(chan PortEvent, 100),
-		debounceMap: make(map[string]time.Time),
+		monitors:     make(map[int]*Monitor),
+		discovery:    disc,
+		logger:       logger,
+		events:       make(chan PortEvent, 100),
+		debounceMap:  make(map[string]time.Time),
+		pollInterval: pollInterval,
 	}, nil
 }
 
@@ -41,8 +43,8 @@ func (m *MultiProcessMonitor) Start(ctx context.Context) error {
 	// Start process discovery
 	go m.discovery.Start(ctx)
 
-	// Poll for changes
-	ticker := time.NewTicker(500 * time.Millisecond)
+	// Poll for changes - use configured interval instead of hardcoded 500ms
+	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -72,13 +74,21 @@ func (m *MultiProcessMonitor) updateMonitors(ctx context.Context) error {
 	for _, proc := range processes {
 		currentPIDs[proc.PID] = true
 
+		// Skip processes unlikely to open ports (performance optimization)
+		if discovery.IsUnlikelyToOpenPorts(proc) {
+			m.logger.Debug("Skipping process unlikely to open ports",
+				"pid", proc.PID,
+				"name", proc.Name)
+			continue
+		}
+
 		// Add monitor for new processes
 		if _, exists := m.monitors[proc.PID]; !exists {
 			m.logger.Debug("Starting monitor for process",
 				"pid", proc.PID,
 				"name", proc.Name)
 
-			monitor := New(proc.PID, m.logger)
+			monitor := NewWithInterval(proc.PID, m.logger, m.pollInterval)
 			m.monitors[proc.PID] = monitor
 
 			// Start monitoring in background

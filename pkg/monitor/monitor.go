@@ -39,11 +39,17 @@ type Monitor struct {
 	pendingPorts map[int]time.Time // For debouncing
 }
 
-// New creates a new port monitor
+// New creates a new port monitor with default 500ms poll interval
+// Deprecated: Use NewWithInterval for configurable polling
 func New(pid int, logger *slog.Logger) *Monitor {
+	return NewWithInterval(pid, logger, 500*time.Millisecond)
+}
+
+// NewWithInterval creates a new port monitor with configurable poll interval
+func NewWithInterval(pid int, logger *slog.Logger, pollInterval time.Duration) *Monitor {
 	return &Monitor{
 		pid:          pid,
-		pollInterval: 500 * time.Millisecond,
+		pollInterval: pollInterval,
 		debounceTime: 100 * time.Millisecond,
 		events:       make(chan PortEvent, 10),
 		logger:       logger,

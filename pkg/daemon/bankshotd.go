@@ -89,7 +89,7 @@ func (d *BankshotD) Start(ctx context.Context) error {
 	// Parse monitor config from main config
 	portRanges := []monitor.PortRange{{Start: 3000, End: 9999}} // Default
 	ignoreProcesses := []string{"sshd", "systemd", "ssh-agent"}
-	pollInterval := 1 * time.Second
+	pollInterval := 5 * time.Second // Default to 5s for reasonable CPU usage
 	gracePeriod := 30 * time.Second
 
 	// Override with config if present

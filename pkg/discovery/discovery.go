@@ -221,6 +221,95 @@ func (pd *ProcessDiscovery) ShouldIgnoreProcess(name string, ignoreList []string
 	return false
 }
 
+// IsUnlikelyToOpenPorts uses heuristics to determine if a process is unlikely to open network ports
+// This helps reduce CPU usage by not monitoring processes that won't need port forwarding
+func IsUnlikelyToOpenPorts(proc *ProcessInfo) bool {
+	name := strings.ToLower(proc.Name)
+	cmd := strings.ToLower(proc.CommandLine)
+
+	// Shell processes - never open ports themselves
+	shellProcesses := []string{"bash", "fish", "zsh", "sh", "dash", "ksh", "tcsh", "csh"}
+	for _, shell := range shellProcesses {
+		if name == shell {
+			return true
+		}
+	}
+
+	// Text editors and pagers - never open ports
+	editors := []string{"vim", "nvim", "vi", "emacs", "nano", "less", "more", "cat", "bat", "head", "tail"}
+	for _, editor := range editors {
+		if name == editor {
+			return true
+		}
+	}
+
+	// Terminal multiplexers (client side) - never open ports
+	if name == "tmux" || name == "screen" {
+		// Only ignore if it's a client (not server mode)
+		if !strings.Contains(cmd, "server") && !strings.Contains(cmd, "-S") {
+			return true
+		}
+	}
+
+	// Common system utilities that don't open ports
+	utilities := []string{
+		"ls", "grep", "find", "sed", "awk", "sort", "uniq", "wc", "tr",
+		"ps", "top", "htop", "btop", "kill", "killall",
+		"mkdir", "rm", "cp", "mv", "touch", "chmod", "chown",
+		"date", "sleep", "watch", "tree", "du", "df",
+		"git", "diff", "patch",  // git itself doesn't open ports (git daemon would)
+		"tar", "gzip", "gunzip", "zip", "unzip",
+		"curl", "wget",  // These make outbound connections but don't listen
+		"jq", "yq", "xq",
+	}
+	for _, util := range utilities {
+		if name == util {
+			return true
+		}
+	}
+
+	// Build tools (usually don't open ports, but some might run dev servers)
+	// Be more careful with these - check command line
+	buildTools := []string{"make", "cmake", "cargo", "npm", "yarn", "pnpm"}
+	for _, tool := range buildTools {
+		if name == tool {
+			// If it's running a dev/serve/start command, don't ignore it
+			if strings.Contains(cmd, "serve") || strings.Contains(cmd, "dev") ||
+				strings.Contains(cmd, "start") || strings.Contains(cmd, "server") {
+				return false
+			}
+			// Otherwise, ignore build processes
+			return true
+		}
+	}
+
+	// Claude CLI - doesn't open ports (though it connects outbound)
+	if name == "claude" {
+		return true
+	}
+
+	// Atuin (shell history) - doesn't open ports
+	if name == "atuin" {
+		return true
+	}
+
+	// Docker client (not daemon) - doesn't open ports
+	if name == "docker" && !strings.Contains(cmd, "dockerd") {
+		return true
+	}
+
+	// Nix-related processes - usually don't open ports
+	nixProcesses := []string{"nix", "nix-build", "nix-shell", "nix-daemon"}
+	for _, nix := range nixProcesses {
+		if name == nix {
+			return true
+		}
+	}
+
+	// If none of the heuristics matched, assume it might open ports
+	return false
+}
+
 // Start begins continuous process discovery
 func (pd *ProcessDiscovery) Start(ctx context.Context) {
 	ticker := time.NewTicker(pd.pollInterval)

@@ -99,7 +99,7 @@ in {
 
       pollInterval = mkOption {
         type = types.str;
-        default = "1s";
+        default = "5s";
         description = "Polling interval for process discovery (applies to bankshotd on remote servers)";
       };
 
