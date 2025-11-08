@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,13 +15,13 @@ import (
 // SessionMonitor manages port forwarding for an SSH session
 type SessionMonitor struct {
 	sessionID       string
-	multiMonitor    *MultiProcessMonitor
+	systemMonitor   *SystemMonitor
 	daemonClient    DaemonClient
 	logger          *slog.Logger
 	portRanges      []PortRange
 	ignoreProcesses []string
 	gracePeriod     time.Duration
-	activeForwards  map[string]ForwardInfo // key: "pid:port"
+	activeForwards  map[string]ForwardInfo // key: "port" (PID not needed)
 	pendingRemovals map[string]time.Time   // forwards pending removal
 	mutex           sync.RWMutex
 }
@@ -60,14 +59,11 @@ type SessionConfig struct {
 
 // NewSessionMonitor creates a new session monitor
 func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
-	multiMonitor, err := NewMultiProcessMonitor(cfg.Logger, cfg.PollInterval)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create multi-process monitor: %w", err)
-	}
+	systemMonitor := NewSystemMonitor(cfg.Logger, cfg.PollInterval)
 
 	return &SessionMonitor{
 		sessionID:       cfg.SessionID,
-		multiMonitor:    multiMonitor,
+		systemMonitor:   systemMonitor,
 		daemonClient:    cfg.DaemonClient,
 		logger:          cfg.Logger,
 		portRanges:      cfg.PortRanges,
@@ -85,8 +81,10 @@ func (m *SessionMonitor) Start(ctx context.Context) error {
 		"portRanges", m.portRanges,
 		"ignoreProcesses", m.ignoreProcesses)
 
-	// Start multi-process monitoring
-	go m.multiMonitor.Start(ctx)
+	// Start system-wide port monitoring
+	if err := m.systemMonitor.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start system monitor: %w", err)
+	}
 
 	// Handle events
 	go m.handleEvents(ctx)
@@ -101,7 +99,7 @@ func (m *SessionMonitor) Start(ctx context.Context) error {
 
 // handleEvents processes port events and manages forwards
 func (m *SessionMonitor) handleEvents(ctx context.Context) {
-	events := m.multiMonitor.GetEvents()
+	events := m.systemMonitor.Events()
 
 	for {
 		select {
@@ -118,14 +116,6 @@ func (m *SessionMonitor) handleEvents(ctx context.Context) {
 
 // handlePortEvent processes a single port event
 func (m *SessionMonitor) handlePortEvent(event PortEvent) {
-	// Check if process should be ignored
-	if m.shouldIgnoreProcess(event.ProcessName) {
-		m.logger.Debug("Ignoring port event from ignored process",
-			"process", event.ProcessName,
-			"port", event.Port)
-		return
-	}
-
 	// Check if port is in auto-forward range
 	if !m.isPortInRange(event.Port) {
 		m.logger.Debug("Port outside auto-forward range",
@@ -134,7 +124,8 @@ func (m *SessionMonitor) handlePortEvent(event PortEvent) {
 		return
 	}
 
-	key := fmt.Sprintf("%d:%d", event.PID, event.Port)
+	// Use port as key (we don't track by PID anymore since we monitor system-wide)
+	key := fmt.Sprintf("%d", event.Port)
 
 	switch event.Type {
 	case PortOpened:
@@ -174,9 +165,8 @@ func (m *SessionMonitor) handlePortOpened(key string, event PortEvent) {
 	req.Payload = payloadBytes
 
 	m.logger.Info("Requesting auto-forward",
-		"pid", event.PID,
 		"port", event.Port,
-		"process", event.ProcessName)
+		"protocol", event.Protocol)
 
 	resp, err := m.daemonClient.SendRequest(req)
 	if err != nil {
@@ -203,9 +193,8 @@ func (m *SessionMonitor) handlePortOpened(key string, event PortEvent) {
 	}
 
 	m.logger.Info("Auto-forward created",
-		"pid", event.PID,
 		"port", event.Port,
-		"process", event.ProcessName)
+		"protocol", event.Protocol)
 }
 
 // handlePortClosed marks a forward for removal after grace period
@@ -222,9 +211,8 @@ func (m *SessionMonitor) handlePortClosed(key string, event PortEvent) {
 	m.pendingRemovals[key] = time.Now()
 
 	m.logger.Info("Port closed, scheduling forward removal",
-		"pid", event.PID,
 		"port", event.Port,
-		"process", event.ProcessName,
+		"protocol", event.Protocol,
 		"gracePeriod", m.gracePeriod)
 }
 
@@ -278,9 +266,7 @@ func (m *SessionMonitor) removeForward(fwd ForwardInfo) {
 	req.Payload = payloadBytes
 
 	m.logger.Info("Removing auto-forward",
-		"pid", fwd.PID,
-		"port", fwd.Port,
-		"process", fwd.ProcessName)
+		"port", fwd.Port)
 
 	resp, err := m.daemonClient.SendRequest(req)
 	if err != nil {
@@ -295,16 +281,6 @@ func (m *SessionMonitor) removeForward(fwd ForwardInfo) {
 			"error", resp.Error,
 			"port", fwd.Port)
 	}
-}
-
-// shouldIgnoreProcess checks if a process should be ignored
-func (m *SessionMonitor) shouldIgnoreProcess(name string) bool {
-	for _, ignore := range m.ignoreProcesses {
-		if strings.Contains(strings.ToLower(name), strings.ToLower(ignore)) {
-			return true
-		}
-	}
-	return false
 }
 
 // isPortInRange checks if a port is within auto-forward ranges
@@ -344,6 +320,5 @@ func (m *SessionMonitor) GetStatus() map[string]interface{} {
 		"sessionID":       m.sessionID,
 		"activeForwards":  len(m.activeForwards),
 		"pendingRemovals": len(m.pendingRemovals),
-		"processes":       len(m.multiMonitor.GetMonitoredProcesses()),
 	}
 }
