@@ -140,13 +140,13 @@ func (m *SessionMonitor) handlePortOpened(key string, event PortEvent) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	// Remove from pending removals if present (do this first to handle quick restarts)
+	delete(m.pendingRemovals, key)
+
 	// Check if already forwarded
 	if _, exists := m.activeForwards[key]; exists {
 		return
 	}
-
-	// Remove from pending removals if present
-	delete(m.pendingRemovals, key)
 
 	// Request forward from daemon
 	req := &protocol.Request{
