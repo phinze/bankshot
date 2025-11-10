@@ -274,3 +274,182 @@ func (d *BankshotD) removePIDFile() {
 		d.logger.Error("Failed to remove PID file", "error", err)
 	}
 }
+
+// Reconcile performs VM-side reconciliation of port forwards
+// It queries the laptop daemon for existing forwards and compares with actual
+// listening ports on the VM, then sends forward/unforward requests to converge.
+func (d *BankshotD) Reconcile() error {
+	d.logger.Info("Starting VM-side reconciliation")
+
+	// Create daemon client
+	daemonClient := &localDaemonClient{
+		socketPath: d.config.Address,
+		logger:     d.logger,
+	}
+
+	// Get hostname for connection matching
+	hostname, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("failed to get hostname: %w", err)
+	}
+	sessionID := hostname
+
+	// Query daemon for existing forwards
+	listReq := &protocol.Request{
+		ID:   "reconcile-" + fmt.Sprintf("%d", time.Now().Unix()),
+		Type: protocol.CommandList,
+	}
+
+	listResp, err := daemonClient.SendRequest(listReq)
+	if err != nil {
+		return fmt.Errorf("failed to query daemon forwards: %w", err)
+	}
+
+	if !listResp.Success {
+		return fmt.Errorf("daemon returned error: %s", listResp.Error)
+	}
+
+	// Parse forwards list
+	var listData protocol.ListResponse
+	if err := json.Unmarshal(listResp.Data, &listData); err != nil {
+		return fmt.Errorf("failed to parse forwards list: %w", err)
+	}
+
+	d.logger.Debug("Retrieved forwards from daemon", "count", len(listData.Forwards))
+
+	// Filter to forwards matching our session/hostname
+	daemonForwards := make(map[int]bool) // port -> exists
+	for _, fwd := range listData.Forwards {
+		if fwd.ConnectionInfo == sessionID {
+			daemonForwards[fwd.RemotePort] = true
+		}
+	}
+
+	d.logger.Debug("Forwards for this session", "count", len(daemonForwards))
+
+	// Get listening ports on VM
+	vmPorts, err := monitor.GetListeningPorts()
+	if err != nil {
+		return fmt.Errorf("failed to get VM listening ports: %w", err)
+	}
+
+	// Parse port ranges from config
+	portRanges := []monitor.PortRange{{Start: 3000, End: 9999}} // Default
+	if d.config.Monitor.PortRanges != nil {
+		portRanges = make([]monitor.PortRange, len(d.config.Monitor.PortRanges))
+		for i, pr := range d.config.Monitor.PortRanges {
+			portRanges[i] = monitor.PortRange{Start: pr.Start, End: pr.End}
+		}
+	}
+
+	// Build set of VM ports in our range
+	vmListening := make(map[int]bool)
+	for _, port := range vmPorts {
+		// Check if port is in any of our ranges
+		inRange := false
+		for _, pr := range portRanges {
+			if port.Port >= pr.Start && port.Port <= pr.End {
+				inRange = true
+				break
+			}
+		}
+		if inRange {
+			vmListening[port.Port] = true
+		}
+	}
+
+	d.logger.Debug("VM ports in configured range", "count", len(vmListening))
+
+	// Reconcile: determine what actions to take
+	var toForward, toUnforward []int
+
+	// Ports listening on VM but not forwarded -> need forward
+	for port := range vmListening {
+		if !daemonForwards[port] {
+			toForward = append(toForward, port)
+		}
+	}
+
+	// Ports forwarded but not listening on VM -> need unforward
+	for port := range daemonForwards {
+		if !vmListening[port] {
+			toUnforward = append(toUnforward, port)
+		}
+	}
+
+	d.logger.Info("Reconciliation plan",
+		"toForward", len(toForward),
+		"toUnforward", len(toUnforward),
+		"unchanged", len(vmListening)-len(toForward))
+
+	// Execute forwards
+	for _, port := range toForward {
+		d.logger.Info("Requesting forward for VM port", "port", port)
+		fwdReq := &protocol.Request{
+			ID:   "reconcile-fwd-" + fmt.Sprintf("%d-%d", port, time.Now().Unix()),
+			Type: protocol.CommandForward,
+		}
+
+		payload, err := json.Marshal(protocol.ForwardRequest{
+			RemotePort:     port,
+			LocalPort:      port,
+			Host:           "localhost",
+			ConnectionInfo: sessionID,
+		})
+		if err != nil {
+			d.logger.Warn("Failed to marshal forward request", "port", port, "error", err)
+			continue
+		}
+		fwdReq.Payload = payload
+
+		fwdResp, err := daemonClient.SendRequest(fwdReq)
+		if err != nil {
+			d.logger.Warn("Failed to request forward", "port", port, "error", err)
+			continue
+		}
+
+		if !fwdResp.Success {
+			d.logger.Warn("Forward request failed", "port", port, "error", fwdResp.Error)
+		} else {
+			d.logger.Info("Successfully requested forward", "port", port)
+		}
+	}
+
+	// Execute unforwards
+	for _, port := range toUnforward {
+		d.logger.Info("Requesting unforward for port", "port", port)
+		unfwdReq := &protocol.Request{
+			ID:   "reconcile-unfwd-" + fmt.Sprintf("%d-%d", port, time.Now().Unix()),
+			Type: protocol.CommandUnforward,
+		}
+
+		payload, err := json.Marshal(protocol.UnforwardRequest{
+			RemotePort:     port,
+			Host:           "localhost",
+			ConnectionInfo: sessionID,
+		})
+		if err != nil {
+			d.logger.Warn("Failed to marshal unforward request", "port", port, "error", err)
+			continue
+		}
+		unfwdReq.Payload = payload
+
+		unfwdResp, err := daemonClient.SendRequest(unfwdReq)
+		if err != nil {
+			d.logger.Warn("Failed to request unforward", "port", port, "error", err)
+			continue
+		}
+
+		if !unfwdResp.Success {
+			d.logger.Warn("Unforward request failed", "port", port, "error", unfwdResp.Error)
+		} else {
+			d.logger.Info("Successfully requested unforward", "port", port)
+		}
+	}
+
+	d.logger.Info("VM-side reconciliation complete",
+		"forwarded", len(toForward),
+		"unforwarded", len(toUnforward))
+
+	return nil
+}

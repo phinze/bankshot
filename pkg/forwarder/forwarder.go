@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/phinze/bankshot/pkg/monitor"
 )
 
 // Forward represents an active port forward
@@ -355,4 +357,128 @@ func (f *Forwarder) ListConnectionForwards(connectionInfo string) []*Forward {
 		}
 	}
 	return forwards
+}
+
+// Reconcile validates that tracked forwards still have active local ports listening.
+// For stale forwards (port not listening), it attempts to re-establish them if the
+// SSH connection is still alive, or removes them if the connection is dead.
+// This helps recover from SSH reconnections that tear down port forwards.
+func (f *Forwarder) Reconcile() error {
+	// Get all listening ports on the system
+	listeningPorts, err := monitor.GetListeningPorts()
+	if err != nil {
+		return fmt.Errorf("failed to get listening ports: %w", err)
+	}
+
+	// Build a set of listening port numbers for quick lookup
+	portSet := make(map[int]bool)
+	for _, port := range listeningPorts {
+		portSet[port.Port] = true
+	}
+
+	// Find forwards that need attention (not listening)
+	f.mu.RLock()
+	var staleForwards []*Forward
+	for _, fwd := range f.forwards {
+		if !portSet[fwd.LocalPort] {
+			// Make a copy to avoid holding the lock during SSH operations
+			fwdCopy := *fwd
+			staleForwards = append(staleForwards, &fwdCopy)
+		}
+	}
+	f.mu.RUnlock()
+
+	if len(staleForwards) == 0 {
+		return nil
+	}
+
+	// Process each stale forward
+	var reestablished, removed int
+	var toRemove []string
+
+	for _, fwd := range staleForwards {
+		f.logger.Debug("Detected stale forward (port not listening)",
+			"connectionInfo", fwd.ConnectionInfo,
+			"remotePort", fwd.RemotePort,
+			"localPort", fwd.LocalPort,
+			"host", fwd.Host,
+		)
+
+		// Check if SSH connection is still alive
+		socketPath, err := FindControlSocket(fwd.ConnectionInfo)
+		if err != nil {
+			// Connection is dead, mark for removal
+			f.logger.Info("Removing stale forward (SSH connection dead)",
+				"connectionInfo", fwd.ConnectionInfo,
+				"remotePort", fwd.RemotePort,
+				"localPort", fwd.LocalPort,
+				"error", err,
+			)
+			key := fmt.Sprintf("%s:%s:%d", fwd.ConnectionInfo, fwd.Host, fwd.RemotePort)
+			toRemove = append(toRemove, key)
+			removed++
+			continue
+		}
+
+		// SSH connection is alive, try to re-establish the forward
+		f.logger.Info("Re-establishing forward (SSH connection alive)",
+			"connectionInfo", fwd.ConnectionInfo,
+			"remotePort", fwd.RemotePort,
+			"localPort", fwd.LocalPort,
+			"host", fwd.Host,
+		)
+
+		// Execute SSH forward command
+		cmd := exec.Command(f.sshCmd,
+			"-O", "forward",
+			"-L", fmt.Sprintf("%d:%s:%d", fwd.LocalPort, fwd.Host, fwd.RemotePort),
+			fwd.ConnectionInfo,
+		)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			f.logger.Warn("Failed to re-establish forward",
+				"connectionInfo", fwd.ConnectionInfo,
+				"remotePort", fwd.RemotePort,
+				"error", err,
+				"output", string(output),
+			)
+			// Don't remove it yet - maybe it will work next time
+			continue
+		}
+
+		// Update the forward with current info
+		f.mu.Lock()
+		key := fmt.Sprintf("%s:%s:%d", fwd.ConnectionInfo, fwd.Host, fwd.RemotePort)
+		if existing, ok := f.forwards[key]; ok {
+			existing.SocketPath = socketPath
+			existing.CreatedAt = time.Now()
+		}
+		f.mu.Unlock()
+
+		reestablished++
+		f.logger.Info("Successfully re-established forward",
+			"connectionInfo", fwd.ConnectionInfo,
+			"remotePort", fwd.RemotePort,
+			"localPort", fwd.LocalPort,
+		)
+	}
+
+	// Remove forwards for dead connections
+	if len(toRemove) > 0 {
+		f.mu.Lock()
+		for _, key := range toRemove {
+			delete(f.forwards, key)
+		}
+		f.mu.Unlock()
+	}
+
+	if reestablished > 0 || removed > 0 {
+		f.logger.Info("Reconciliation complete",
+			"reestablished", reestablished,
+			"removed", removed,
+		)
+	}
+
+	return nil
 }

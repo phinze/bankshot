@@ -30,6 +30,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newUnforwardCmd())
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newListCmd())
+	rootCmd.AddCommand(newReconcileCmd())
 	rootCmd.AddCommand(newWatchCmd())
 	rootCmd.AddCommand(newMonitorCmd())
 	rootCmd.AddCommand(newConfigCmd())

@@ -33,6 +33,7 @@ For manual control, use systemctl:
 	}
 
 	cmd.AddCommand(newDaemonRunCmd())
+	cmd.AddCommand(newDaemonReconcileCmd())
 
 	return cmd
 }
@@ -84,5 +85,49 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("bankshotd failed: %w", err)
 	}
 
+	return nil
+}
+
+func newDaemonReconcileCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reconcile",
+		Short: "Run a one-shot reconciliation of port forwards",
+		Long: `Reconcile queries the laptop daemon for existing forwards and compares
+them with ports actually listening on this VM. It then:
+- Requests forwards for VM ports that aren't forwarded
+- Removes forwards for ports that aren't listening on the VM
+
+This is useful to run after SSH reconnection to restore forwards.
+
+Example SSH config to run on connect:
+  Host your-vm
+    RemoteCommand bankshot daemon reconcile 2>/dev/null || true
+`,
+		RunE: runDaemonReconcile,
+	}
+
+	cmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
+
+	return cmd
+}
+
+func runDaemonReconcile(cmd *cobra.Command, args []string) error {
+	// Create daemon configuration
+	cfg := daemon.Config{
+		LogLevel: logLevel,
+	}
+
+	// Create bankshotd instance
+	d, err := daemon.NewBankshotD(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create bankshotd: %w", err)
+	}
+
+	// Run reconciliation
+	if err := d.Reconcile(); err != nil {
+		return fmt.Errorf("reconciliation failed: %w", err)
+	}
+
+	fmt.Println("Reconciliation completed successfully")
 	return nil
 }

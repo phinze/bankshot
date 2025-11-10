@@ -19,6 +19,8 @@ const (
 	CommandStatus CommandType = "status"
 	// CommandList lists active forwards
 	CommandList CommandType = "list"
+	// CommandReconcile triggers immediate forward reconciliation
+	CommandReconcile CommandType = "reconcile"
 )
 
 // Request represents a command request from client to daemon

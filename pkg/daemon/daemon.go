@@ -116,6 +116,10 @@ func (d *Daemon) Run() error {
 		d.logger.Warn("Failed to auto-discover forwards", "error", err)
 	}
 
+	// Start periodic reconciliation to detect stale forwards
+	d.wg.Add(1)
+	go d.reconcileLoop()
+
 	// Start accepting connections
 	d.wg.Add(1)
 	go d.acceptConnections()
@@ -238,6 +242,8 @@ func (d *Daemon) handleCommand(req *protocol.Request) *protocol.Response {
 		return d.handleForwardCommand(req)
 	case protocol.CommandUnforward:
 		return d.handleUnforwardCommand(req)
+	case protocol.CommandReconcile:
+		return d.handleReconcileCommand(req)
 	default:
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("unknown command type: %s", req.Type))
 	}
@@ -265,6 +271,11 @@ func (d *Daemon) handleOpenCommand(req *protocol.Request) *protocol.Response {
 
 // handleStatusCommand handles the status command
 func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
+	// Reconcile before status to ensure we show accurate state
+	if err := d.forwarder.Reconcile(); err != nil {
+		d.logger.Warn("Failed to reconcile forwards before status", "error", err)
+	}
+
 	uptime := time.Since(d.startTime).Round(time.Second).String()
 
 	// Get all forwards and group by connection
@@ -311,6 +322,11 @@ func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 
 // handleListCommand handles the list forwards command
 func (d *Daemon) handleListCommand(req *protocol.Request) *protocol.Response {
+	// Reconcile before listing to ensure we show accurate state
+	if err := d.forwarder.Reconcile(); err != nil {
+		d.logger.Warn("Failed to reconcile forwards before listing", "error", err)
+	}
+
 	forwards := d.forwarder.ListForwards()
 
 	forwardInfos := make([]protocol.ForwardInfo, 0, len(forwards))
@@ -403,6 +419,22 @@ func (d *Daemon) handleUnforwardCommand(req *protocol.Request) *protocol.Respons
 	resp, _ := protocol.NewSuccessResponse(req.ID, map[string]interface{}{
 		"message": fmt.Sprintf("Removed forward for %s:%d",
 			host, unforwardReq.RemotePort),
+	})
+	return resp
+}
+
+// handleReconcileCommand handles the reconcile command
+func (d *Daemon) handleReconcileCommand(req *protocol.Request) *protocol.Response {
+	d.logger.Info("Reconciliation requested via API")
+
+	// Trigger reconciliation
+	if err := d.forwarder.Reconcile(); err != nil {
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("reconciliation failed: %w", err))
+	}
+
+	// Return success
+	resp, _ := protocol.NewSuccessResponse(req.ID, map[string]interface{}{
+		"message": "Reconciliation completed successfully",
 	})
 	return resp
 }
@@ -577,4 +609,24 @@ func (d *Daemon) autoDiscoverForwards() error {
 		"registered", registeredCount)
 
 	return nil
+}
+
+// reconcileLoop periodically validates tracked forwards against actual listening ports
+func (d *Daemon) reconcileLoop() {
+	defer d.wg.Done()
+
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.logger.Debug("Running periodic forward reconciliation")
+			if err := d.forwarder.Reconcile(); err != nil {
+				d.logger.Warn("Reconciliation failed", "error", err)
+			}
+		}
+	}
 }
