@@ -39,7 +39,7 @@ test:
 
 # Run linter
 lint:
-	golangci-lint run
+	golangci-lint run ./cmd/... ./pkg/... ./test/...
 
 # Build for all platforms
 build-all:

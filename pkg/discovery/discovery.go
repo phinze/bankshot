@@ -3,7 +3,6 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"log/slog"
 	"os"
 	"os/user"
@@ -170,7 +169,7 @@ func (pd *ProcessDiscovery) GetTerminatedPIDs(currentProcesses []*ProcessInfo) [
 // getProcessInfo reads process information from /proc/[pid]/
 func (pd *ProcessDiscovery) getProcessInfo(pid int) (*ProcessInfo, error) {
 	statusPath := filepath.Join("/proc", strconv.Itoa(pid), "status")
-	statusData, err := ioutil.ReadFile(statusPath)
+	statusData, err := os.ReadFile(statusPath)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +200,7 @@ func (pd *ProcessDiscovery) getProcessInfo(pid int) (*ProcessInfo, error) {
 
 	// Read command line
 	cmdlinePath := filepath.Join("/proc", strconv.Itoa(pid), "cmdline")
-	cmdlineData, err := ioutil.ReadFile(cmdlinePath)
+	cmdlineData, err := os.ReadFile(cmdlinePath)
 	if err == nil {
 		// Replace null bytes with spaces
 		info.CommandLine = strings.ReplaceAll(string(cmdlineData), "\x00", " ")

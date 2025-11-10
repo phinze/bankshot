@@ -8,12 +8,6 @@ import (
 	"time"
 )
 
-// systemdMode indicates if we're running under systemd
-var systemdMode bool
-
-// pidFile path for PID file
-var pidFile string
-
 // notifySystemd sends notification to systemd if running in systemd mode
 func (d *Daemon) notifySystemd(state string) {
 	if !d.systemdMode {
