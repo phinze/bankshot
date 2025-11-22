@@ -127,14 +127,11 @@ in {
   };
 
   config = mkIf cfg.enable {
-    home.packages = [cfg.package];
-
-    # Create xdg-open symlink if enabled
-    home.file = mkIf cfg.enableXdgOpen {
-      ".local/bin/xdg-open" = {
-        source = "${cfg.package}/bin/bankshot";
-      };
-    };
+    home.packages = [cfg.package]
+      ++ lib.optional cfg.enableXdgOpen (pkgs.runCommand "bankshot-xdg-open" {} ''
+        mkdir -p $out/bin
+        ln -s ${cfg.package}/bin/bankshot $out/bin/xdg-open
+      '');
 
     # Systemd user service for daemon
     systemd.user.services.bankshotd = mkIf cfg.daemon.enable {
@@ -177,8 +174,5 @@ in {
     xdg.configFile."bankshot/config.yaml" = {
       source = configFile;
     };
-
-    # Ensure ~/.local/bin is in PATH for xdg-open symlink
-    home.sessionPath = mkIf cfg.enableXdgOpen ["$HOME/.local/bin"];
   };
 }
