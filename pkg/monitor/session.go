@@ -140,15 +140,32 @@ func (m *SessionMonitor) handlePortOpened(key string, event PortEvent) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// Remove from pending removals if present (do this first to handle quick restarts)
-	delete(m.pendingRemovals, key)
+	// Check if this port had a pending removal (server restart case)
+	_, wasPending := m.pendingRemovals[key]
+	if wasPending {
+		delete(m.pendingRemovals, key)
+		m.logger.Info("Canceled pending removal for reopened port",
+			"port", event.Port,
+			"protocol", event.Protocol)
+
+		// Re-request forward to ensure daemon still has it (idempotent)
+		// This handles the case where daemon state was lost
+		m.requestForward(key, event)
+		return
+	}
 
 	// Check if already forwarded
 	if _, exists := m.activeForwards[key]; exists {
 		return
 	}
 
-	// Request forward from daemon
+	m.requestForward(key, event)
+}
+
+// requestForward sends a forward request to the daemon and tracks it locally.
+// This is idempotent - the daemon returns success if the forward already exists.
+// Must be called with m.mutex held.
+func (m *SessionMonitor) requestForward(key string, event PortEvent) {
 	req := &protocol.Request{
 		ID:   uuid.New().String(),
 		Type: protocol.CommandForward,
