@@ -15,7 +15,7 @@ import (
 // SessionMonitor manages port forwarding for an SSH session
 type SessionMonitor struct {
 	sessionID       string
-	systemMonitor   *SystemMonitor
+	systemMonitor   PortEventSource
 	daemonClient    DaemonClient
 	logger          *slog.Logger
 	portRanges      []PortRange
@@ -52,18 +52,16 @@ type SessionConfig struct {
 	DaemonClient    DaemonClient
 	PortRanges      []PortRange
 	IgnoreProcesses []string
-	PollInterval    time.Duration
 	GracePeriod     time.Duration
 	Logger          *slog.Logger
+	PortEventSource PortEventSource
 }
 
 // NewSessionMonitor creates a new session monitor
 func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
-	systemMonitor := NewSystemMonitor(cfg.Logger, cfg.PollInterval)
-
 	return &SessionMonitor{
 		sessionID:       cfg.SessionID,
-		systemMonitor:   systemMonitor,
+		systemMonitor:   cfg.PortEventSource,
 		daemonClient:    cfg.DaemonClient,
 		logger:          cfg.Logger,
 		portRanges:      cfg.PortRanges,

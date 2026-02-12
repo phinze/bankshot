@@ -1,4 +1,4 @@
-.PHONY: help build build-all test lint clean install
+.PHONY: help build build-all test lint clean install generate
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -55,6 +55,10 @@ build-all:
 	@echo "Building for Linux (arm64)..."
 	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/bankshot-linux-arm64 ./cmd/bankshot
 	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/bankshotd-linux-arm64 ./cmd/bankshotd
+
+# Regenerate eBPF code (requires clang and llvm-strip)
+generate:
+	go generate ./...
 
 # Clean built artifacts
 clean:

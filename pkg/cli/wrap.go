@@ -87,7 +87,7 @@ Examples:
 				}))
 			}
 
-			portMon := monitor.New(pm.PID(), logger)
+			portMon := monitor.NewPortEventSource(pm.PID(), logger)
 			if err := portMon.Start(ctx); err != nil {
 				return fmt.Errorf("failed to start port monitor: %w", err)
 			}
