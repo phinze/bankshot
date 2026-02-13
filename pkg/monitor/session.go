@@ -222,6 +222,20 @@ func (m *SessionMonitor) handlePortClosed(key string, event PortEvent) {
 		return
 	}
 
+	// Verify the port is actually closed — another listener may have already
+	// replaced it (hot-reload race: PortOpened(new) then PortClosed(old))
+	ports, err := GetListeningPorts()
+	if err == nil {
+		for _, p := range ports {
+			if p.Port == event.Port {
+				m.logger.Info("Ignoring stale PortClosed — port still listening",
+					"port", event.Port,
+					"protocol", event.Protocol)
+				return
+			}
+		}
+	}
+
 	// Mark for pending removal
 	m.pendingRemovals[key] = time.Now()
 
