@@ -140,6 +140,12 @@ in {
     daemonExe = if cfg.daemon.executablePath != null
       then cfg.daemon.executablePath
       else "${cfg.package}/bin/bankshot";
+    # When using a capability-wrapped binary for eBPF, we must disable all
+    # mount-namespace sandboxing. User systemd instances lack CAP_SYS_ADMIN,
+    # so any mount namespace feature (ProtectSystem, PrivateTmp, ProtectHome)
+    # triggers CLONE_NEWUSER, placing the process in a non-init user namespace
+    # where CAP_BPF is not recognized by the kernel.
+    ebpfMode = cfg.daemon.executablePath != null;
   in {
     home.packages = [cfg.package]
       ++ lib.optional cfg.enableXdgOpen (pkgs.runCommand "bankshot-xdg-open" {} ''
@@ -161,11 +167,11 @@ in {
         Restart = "on-failure";
         RestartSec = "5s";
 
-        # Security hardening
-        PrivateTmp = true;
-        ProtectSystem = "strict";
-        ProtectHome = "read-only";
-        ReadWritePaths = [
+        # Security hardening — disabled in eBPF mode (see ebpfMode comment above)
+        PrivateTmp = !ebpfMode;
+        ProtectSystem = if ebpfMode then false else "strict";
+        ProtectHome = if ebpfMode then false else "read-only";
+        ReadWritePaths = lib.mkIf (!ebpfMode) [
           "%h/.config/bankshot"
         ];
 
