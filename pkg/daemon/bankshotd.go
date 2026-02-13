@@ -16,12 +16,13 @@ import (
 
 // BankshotD is the server-side daemon that monitors ports and requests forwards
 type BankshotD struct {
-	logger         *slog.Logger
-	systemdMode    bool
-	pidFile        string
-	ctx            context.Context
-	sessionMonitor *monitor.SessionMonitor
-	config         *config.Config
+	logger          *slog.Logger
+	systemdMode     bool
+	pidFile         string
+	ctx             context.Context
+	sessionMonitor  *monitor.SessionMonitor
+	config          *config.Config
+	socketReachable bool
 }
 
 // NewBankshotD creates a new bankshotd instance
@@ -154,6 +155,9 @@ func (d *BankshotD) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Start socket connectivity monitor for sleep/wake recovery
+	go d.socketConnectivityLoop(monitorCtx, daemonClient)
+
 	// Wait for shutdown signal
 	<-ctx.Done()
 
@@ -246,6 +250,40 @@ func (d *BankshotD) watchdogLoop() {
 			d.notifySystemd("WATCHDOG=1")
 		case <-d.ctx.Done():
 			return
+		}
+	}
+}
+
+// socketConnectivityLoop periodically probes the daemon socket to detect
+// SSH reconnection after sleep/wake. On unreachable → reachable transition,
+// it triggers reconciliation to re-establish port forwards.
+func (d *BankshotD) socketConnectivityLoop(ctx context.Context, client *localDaemonClient) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			req := &protocol.Request{
+				ID:   "connectivity-check-" + fmt.Sprintf("%d", time.Now().Unix()),
+				Type: protocol.CommandStatus,
+			}
+
+			_, err := client.SendRequest(req)
+			reachable := err == nil
+
+			if reachable && !d.socketReachable {
+				d.logger.Info("Daemon socket became reachable, triggering reconciliation")
+				if err := d.Reconcile(); err != nil {
+					d.logger.Error("Reconciliation after reconnect failed", "error", err)
+				}
+			} else if !reachable && d.socketReachable {
+				d.logger.Warn("Daemon socket became unreachable")
+			}
+
+			d.socketReachable = reachable
 		}
 	}
 }
