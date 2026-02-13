@@ -33,7 +33,7 @@ in {
   config = mkIf cfg.ebpf.enable {
     security.wrappers.bankshot = {
       source = "${cfg.package}/bin/bankshot";
-      capabilities = "cap_bpf,cap_perfmon=ep";
+      capabilities = "cap_bpf,cap_perfmon,cap_dac_read_search=ep";
       owner = "root";
       group = "root";
     };
