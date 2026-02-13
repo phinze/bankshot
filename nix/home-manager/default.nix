@@ -172,6 +172,8 @@ in {
         # Resource limits
         MemoryMax = "256M";
         CPUQuota = "20%";
+        # Allow eBPF memlock when using capability-wrapped binary
+        LimitMEMLOCK = "infinity";
 
         # Environment
         Environment = [
