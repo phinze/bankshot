@@ -66,6 +66,16 @@ in {
         default = "info";
         description = "Log level for the daemon";
       };
+
+      executablePath = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = ''
+          Override the path to the bankshot executable used by the daemon service.
+          Set this to a capability-wrapped binary path (e.g. /run/wrappers/bin/bankshot)
+          to enable eBPF support. When null, uses the package binary directly.
+        '';
+      };
     };
 
     monitor = {
@@ -126,7 +136,11 @@ in {
     };
   };
 
-  config = mkIf cfg.enable {
+  config = mkIf cfg.enable (let
+    daemonExe = if cfg.daemon.executablePath != null
+      then cfg.daemon.executablePath
+      else "${cfg.package}/bin/bankshot";
+  in {
     home.packages = [cfg.package]
       ++ lib.optional cfg.enableXdgOpen (pkgs.runCommand "bankshot-xdg-open" {} ''
         mkdir -p $out/bin
@@ -143,7 +157,7 @@ in {
 
       Service = {
         Type = "notify";
-        ExecStart = "${cfg.package}/bin/bankshot daemon run --systemd --log-level ${cfg.daemon.logLevel}";
+        ExecStart = "${daemonExe} daemon run --systemd --log-level ${cfg.daemon.logLevel}";
         Restart = "on-failure";
         RestartSec = "5s";
 
@@ -174,5 +188,5 @@ in {
     xdg.configFile."bankshot/config.yaml" = {
       source = configFile;
     };
-  };
+  });
 }

@@ -18,6 +18,13 @@
         config._module.args.bankshotPackages = self.packages;
       };
       homeManagerModules.bankshot = self.homeManagerModules.default;
+
+      # NixOS module (security.wrappers for eBPF capabilities)
+      nixosModules.default = { pkgs, ... }: {
+        imports = [ ./nix/nixos ];
+        config._module.args.bankshotPackages = self.packages;
+      };
+      nixosModules.bankshot = self.nixosModules.default;
     }
     // flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
