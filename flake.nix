@@ -84,6 +84,9 @@
           delve
           goreleaser
           svu
+          # eBPF code generation (go generate ./pkg/monitor/portbpf/...)
+          llvmPackages_19.clang-unwrapped
+          llvmPackages_19.llvm
         ];
 
         shellHook = ''

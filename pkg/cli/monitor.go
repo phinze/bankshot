@@ -94,15 +94,18 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		logger: logger,
 	}
 
+	// Create port event source (eBPF on Linux if available, else polling)
+	portSource := monitor.NewSystemPortEventSource(logger, pollDuration)
+
 	// Create session monitor
 	sessionMonitor, err := monitor.NewSessionMonitor(monitor.SessionConfig{
 		SessionID:       sessionID,
 		DaemonClient:    daemonClient,
 		PortRanges:      portRanges,
 		IgnoreProcesses: ignoreList,
-		PollInterval:    pollDuration,
 		GracePeriod:     graceDuration,
 		Logger:          logger,
+		PortEventSource: portSource,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create session monitor: %w", err)

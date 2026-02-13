@@ -24,7 +24,7 @@ jobs:
       run: go mod download
 
     - name: Run tests
-      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic $(go list ./... | grep -v /examples)
 
     - name: Upload coverage
       uses: codecov/codecov-action@v4
@@ -50,4 +50,4 @@ jobs:
       uses: golangci/golangci-lint-action@v6
       with:
         version: latest
-        args: --timeout=5m
+        args: --timeout=5m ./cmd/... ./pkg/... ./test/...

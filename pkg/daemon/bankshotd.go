@@ -117,15 +117,18 @@ func (d *BankshotD) Start(ctx context.Context) error {
 		}
 	}
 
+	// Create port event source (eBPF on Linux if available, else polling)
+	portSource := monitor.NewSystemPortEventSource(d.logger, pollInterval)
+
 	// Create and start session monitor
 	sessionMonitor, err := monitor.NewSessionMonitor(monitor.SessionConfig{
 		SessionID:       sessionID,
 		DaemonClient:    daemonClient,
 		PortRanges:      portRanges,
 		IgnoreProcesses: ignoreProcesses,
-		PollInterval:    pollInterval,
 		GracePeriod:     gracePeriod,
 		Logger:          d.logger,
+		PortEventSource: portSource,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create session monitor: %w", err)
@@ -342,37 +345,42 @@ func (d *BankshotD) Reconcile() error {
 		}
 	}
 
-	// Build set of VM ports in our range
-	vmListening := make(map[int]bool)
+	// Build set of ALL VM listening ports (for detecting stale forwards)
+	allVMListening := make(map[int]bool)
 	for _, port := range vmPorts {
-		// Check if port is in any of our ranges
-		inRange := false
+		allVMListening[port.Port] = true
+	}
+
+	// Build set of VM ports in our auto-forward range (for discovering new forwards)
+	vmListeningInRange := make(map[int]bool)
+	for _, port := range vmPorts {
 		for _, pr := range portRanges {
 			if port.Port >= pr.Start && port.Port <= pr.End {
-				inRange = true
+				vmListeningInRange[port.Port] = true
 				break
 			}
 		}
-		if inRange {
-			vmListening[port.Port] = true
-		}
 	}
 
-	d.logger.Debug("VM ports in configured range", "count", len(vmListening))
+	d.logger.Debug("VM ports listening",
+		"total", len(allVMListening),
+		"inConfiguredRange", len(vmListeningInRange))
 
 	// Reconcile: determine what actions to take
 	var toForward, toUnforward []int
 
-	// Ports listening on VM but not forwarded -> need forward
-	for port := range vmListening {
+	// Ports listening on VM in our auto-forward range but not forwarded -> need forward
+	for port := range vmListeningInRange {
 		if !daemonForwards[port] {
 			toForward = append(toForward, port)
 		}
 	}
 
-	// Ports forwarded but not listening on VM -> need unforward
+	// Ports forwarded but not listening on VM at all -> need unforward
+	// This only removes truly stale forwards, preserving forwards created
+	// by "bankshot wrap" for ports outside the auto-forward range.
 	for port := range daemonForwards {
-		if !vmListening[port] {
+		if !allVMListening[port] {
 			toUnforward = append(toUnforward, port)
 		}
 	}
@@ -380,7 +388,7 @@ func (d *BankshotD) Reconcile() error {
 	d.logger.Info("Reconciliation plan",
 		"toForward", len(toForward),
 		"toUnforward", len(toUnforward),
-		"unchanged", len(vmListening)-len(toForward))
+		"unchanged", len(vmListeningInRange)-len(toForward))
 
 	// Execute forwards
 	for _, port := range toForward {
