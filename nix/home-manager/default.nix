@@ -159,6 +159,7 @@ in {
         Description = "Bankshotd automatic port forwarding daemon";
         Documentation = "https://github.com/phinze/bankshot";
         After = ["network.target"];
+        X-Restart-Triggers = [ "${cfg.package}" ];
       };
 
       Service = {
