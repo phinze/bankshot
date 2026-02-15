@@ -98,25 +98,25 @@ in {
             end = 9999;
           }
         ];
-        description = "Port ranges to automatically forward (applies to bankshotd on remote servers)";
+        description = "Port ranges to automatically forward (applies to bankshot monitor on remote servers)";
       };
 
       ignoreProcesses = mkOption {
         type = types.listOf types.str;
         default = ["sshd" "systemd" "ssh-agent"];
-        description = "Processes to ignore for port forwarding (applies to bankshotd on remote servers)";
+        description = "Processes to ignore for port forwarding (applies to bankshot monitor on remote servers)";
       };
 
       pollInterval = mkOption {
         type = types.str;
         default = "5s";
-        description = "Polling interval for process discovery (applies to bankshotd on remote servers)";
+        description = "Polling interval for process discovery (applies to bankshot monitor on remote servers)";
       };
 
       gracePeriod = mkOption {
         type = types.str;
         default = "30s";
-        description = "Grace period before removing forwards after port close (applies to bankshotd on remote servers)";
+        description = "Grace period before removing forwards after port close (applies to bankshot monitor on remote servers)";
       };
     };
 
@@ -154,9 +154,9 @@ in {
       '');
 
     # Systemd user service for daemon
-    systemd.user.services.bankshotd = mkIf cfg.daemon.enable {
+    systemd.user.services.bankshot-monitor = mkIf cfg.daemon.enable {
       Unit = {
-        Description = "Bankshotd automatic port forwarding daemon";
+        Description = "Bankshot monitor - automatic port forwarding";
         Documentation = "https://github.com/phinze/bankshot";
         After = ["network.target"];
         X-Restart-Triggers = [ "${cfg.package}" ];
@@ -164,7 +164,7 @@ in {
 
       Service = {
         Type = "notify";
-        ExecStart = "${daemonExe} daemon run --systemd --log-level ${cfg.daemon.logLevel}";
+        ExecStart = "${daemonExe} monitor run --systemd --log-level ${cfg.daemon.logLevel}";
         Restart = "on-failure";
         RestartSec = "5s";
 

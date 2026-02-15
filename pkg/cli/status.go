@@ -17,14 +17,14 @@ func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Get daemon status",
-		Long:  `Retrieves the current status of the bankshot daemon and bankshotd if available.`,
+		Long:  `Retrieves the current status of the bankshot daemon and monitor if available.`,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Always check bankshotd status first (if systemctl is available)
-			if err := showBankshotdStatus(); err != nil {
-				// Don't fail if bankshotd isn't available, just note it
+			// Always check monitor status first (if systemctl is available)
+			if err := showMonitorStatus(); err != nil {
+				// Don't fail if monitor isn't available, just note it
 				if verbose {
-					fmt.Fprintf(os.Stderr, "Bankshotd: %v\n", err)
+					fmt.Fprintf(os.Stderr, "Monitor: %v\n", err)
 				}
 			}
 
@@ -67,15 +67,15 @@ func newStatusCmd() *cobra.Command {
 	return cmd
 }
 
-// showBankshotdStatus displays the status of the bankshotd systemd service
-func showBankshotdStatus() error {
+// showMonitorStatus displays the status of the bankshot-monitor systemd service
+func showMonitorStatus() error {
 	// Check if systemctl exists
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return fmt.Errorf("systemctl not available")
 	}
 
-	// Get bankshotd service status
-	cmd := exec.Command("systemctl", "--user", "is-active", "bankshotd")
+	// Get bankshot-monitor service status
+	cmd := exec.Command("systemctl", "--user", "is-active", "bankshot-monitor")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -84,7 +84,7 @@ func showBankshotdStatus() error {
 	status := strings.TrimSpace(out.String())
 
 	// Get more detailed status
-	cmd = exec.Command("systemctl", "--user", "status", "bankshotd", "--no-pager", "-n", "0")
+	cmd = exec.Command("systemctl", "--user", "status", "bankshot-monitor", "--no-pager", "-n", "0")
 	out.Reset()
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -120,8 +120,8 @@ func showBankshotdStatus() error {
 		}
 	}
 
-	// Display bankshotd status
-	fmt.Printf("Bankshotd Status:\n")
+	// Display monitor status
+	fmt.Printf("Monitor Status:\n")
 	if isActive && status == "active" {
 		fmt.Printf("  State: \033[32m●\033[0m Running\n")
 		if uptime != "" {

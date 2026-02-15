@@ -31,11 +31,9 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newListCmd())
 	rootCmd.AddCommand(newReconcileCmd())
-	rootCmd.AddCommand(newWatchCmd())
-	rootCmd.AddCommand(newMonitorCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newWrapCmd())
-	rootCmd.AddCommand(newDaemonCmd())
+	rootCmd.AddCommand(newMonitorCmd())
 
 	return rootCmd
 }

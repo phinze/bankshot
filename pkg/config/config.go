@@ -25,11 +25,11 @@ type Config struct {
 	// SSHCommand is the path to ssh binary
 	SSHCommand string `yaml:"ssh_command"`
 
-	// Monitor configuration (for bankshotd)
+	// Monitor configuration (for bankshot monitor on remote servers)
 	Monitor MonitorConfig `yaml:"monitor,omitempty"`
 }
 
-// MonitorConfig represents the monitor configuration for bankshotd
+// MonitorConfig represents the configuration for bankshot monitor
 type MonitorConfig struct {
 	PortRanges      []PortRange `yaml:"portRanges,omitempty"`
 	IgnoreProcesses []string    `yaml:"ignoreProcesses,omitempty"`

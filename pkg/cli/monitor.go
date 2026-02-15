@@ -2,121 +2,70 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
-	"time"
 
-	"github.com/phinze/bankshot/pkg/monitor"
-	"github.com/phinze/bankshot/pkg/protocol"
+	"github.com/phinze/bankshot/pkg/daemon"
 	"github.com/spf13/cobra"
 )
 
 var (
-	sessionID    string
-	pollInterval string
-	gracePeriod  string
+	systemdMode bool
+	logLevel    string
+	pidFile     string
 )
 
 func newMonitorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "monitor",
-		Short: "Monitor local processes and request port forwards",
-		Long: `Monitor all processes owned by the current user and automatically
-request port forwards when they bind to ports. This command is typically
-started automatically by the shell integration in SSH sessions.`,
-		RunE: runMonitor,
+		Short: "Run the bankshot monitor (used by systemd)",
+		Long: `Run the bankshot monitor process. This command is typically called by systemd
+on remote servers to automatically detect and forward ports.
+
+For manual control, use systemctl:
+  systemctl --user start bankshot-monitor    # Start monitor
+  systemctl --user stop bankshot-monitor     # Stop monitor
+  systemctl --user status bankshot-monitor   # Check status
+  systemctl --user restart bankshot-monitor  # Restart monitor
+  journalctl --user -u bankshot-monitor      # View logs`,
 	}
 
-	cmd.Flags().StringVar(&sessionID, "session", "", "Session ID for this monitor instance")
-	cmd.Flags().StringVar(&pollInterval, "poll-interval", "1s", "Polling interval for process discovery")
-	cmd.Flags().StringVar(&gracePeriod, "grace-period", "30s", "Grace period before removing forwards")
+	cmd.AddCommand(newMonitorRunCmd())
+	cmd.AddCommand(newMonitorReconcileCmd())
+
+	return cmd
+}
+
+func newMonitorRunCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Run the monitor directly (used by systemd)",
+		Long:  `Run the bankshot monitor process directly. This is typically called by systemd.`,
+		RunE:  runMonitor,
+	}
+
+	cmd.Flags().BoolVar(&systemdMode, "systemd", false, "Run in systemd mode with sd_notify support")
+	cmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
+	cmd.Flags().StringVar(&pidFile, "pid-file", "", "Path to PID file")
 
 	return cmd
 }
 
 func runMonitor(cmd *cobra.Command, args []string) error {
-	// Get session ID from flag or environment
-	if sessionID == "" {
-		sessionID = os.Getenv("BANKSHOT_SESSION")
-	}
-	if sessionID == "" {
-		return fmt.Errorf("session ID required (use --session or set BANKSHOT_SESSION)")
+	// Create monitor configuration
+	cfg := daemon.Config{
+		SystemdMode: systemdMode,
+		LogLevel:    logLevel,
+		PIDFile:     pidFile,
 	}
 
-	// Parse durations
-	pollDuration, err := time.ParseDuration(pollInterval)
+	// Create and initialize monitor
+	d, err := daemon.NewMonitor(cfg)
 	if err != nil {
-		return fmt.Errorf("invalid poll interval: %w", err)
+		return fmt.Errorf("failed to create monitor: %w", err)
 	}
-
-	graceDuration, err := time.ParseDuration(gracePeriod)
-	if err != nil {
-		return fmt.Errorf("invalid grace period: %w", err)
-	}
-
-	// Parse port ranges from environment
-	portRangesJSON := os.Getenv("BANKSHOT_MONITOR_PORT_RANGES")
-	var portRanges []monitor.PortRange
-	if portRangesJSON != "" {
-		if err := json.Unmarshal([]byte(portRangesJSON), &portRanges); err != nil {
-			return fmt.Errorf("failed to parse port ranges: %w", err)
-		}
-	} else {
-		// Default port ranges
-		portRanges = []monitor.PortRange{
-			{Start: 3000, End: 9999},
-		}
-	}
-
-	// Parse ignore list from environment
-	ignoreList := []string{"sshd", "systemd", "ssh-agent"}
-	ignoreEnv := os.Getenv("BANKSHOT_MONITOR_IGNORE")
-	if ignoreEnv != "" {
-		ignoreList = strings.Split(ignoreEnv, ",")
-	}
-
-	// Set up logger
-	logLevel := slog.LevelInfo
-	if verbose {
-		logLevel = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-
-	// Create daemon client
-	daemonClient := &cliDaemonClient{
-		logger: logger,
-	}
-
-	// Create port event source (eBPF on Linux if available, else polling)
-	portSource := monitor.NewSystemPortEventSource(logger, pollDuration)
-
-	// Create session monitor
-	sessionMonitor, err := monitor.NewSessionMonitor(monitor.SessionConfig{
-		SessionID:       sessionID,
-		DaemonClient:    daemonClient,
-		PortRanges:      portRanges,
-		IgnoreProcesses: ignoreList,
-		GracePeriod:     graceDuration,
-		Logger:          logger,
-		PortEventSource: portSource,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create session monitor: %w", err)
-	}
-
-	logger.Info("Starting monitor",
-		"session", sessionID,
-		"pollInterval", pollInterval,
-		"gracePeriod", gracePeriod,
-		"portRanges", portRanges,
-		"ignoreProcesses", ignoreList)
 
 	// Set up signal handling
 	ctx, cancel := context.WithCancel(context.Background())
@@ -125,24 +74,60 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		<-sigChan
-		logger.Info("Monitor received shutdown signal")
+		if verbose {
+			fmt.Fprintln(os.Stderr, "Received shutdown signal")
+		}
 		cancel()
 	}()
 
-	// Start monitoring
-	if err := sessionMonitor.Start(ctx); err != nil {
+	// Start monitor
+	if err := d.Start(ctx); err != nil {
 		return fmt.Errorf("monitor failed: %w", err)
 	}
 
-	logger.Info("Monitor shutdown complete")
 	return nil
 }
 
-// cliDaemonClient implements the DaemonClient interface for CLI
-type cliDaemonClient struct {
-	logger *slog.Logger
+func newMonitorReconcileCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reconcile",
+		Short: "Run a one-shot reconciliation of port forwards",
+		Long: `Reconcile queries the laptop daemon for existing forwards and compares
+them with ports actually listening on this VM. It then:
+- Requests forwards for VM ports that aren't forwarded
+- Removes forwards for ports that aren't listening on the VM
+
+This is useful to run after SSH reconnection to restore forwards.
+
+Example SSH config to run on connect:
+  Host your-vm
+    RemoteCommand bankshot monitor reconcile 2>/dev/null || true
+`,
+		RunE: runMonitorReconcile,
+	}
+
+	cmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
+
+	return cmd
 }
 
-func (c *cliDaemonClient) SendRequest(req *protocol.Request) (*protocol.Response, error) {
-	return sendRequest(req)
+func runMonitorReconcile(cmd *cobra.Command, args []string) error {
+	// Create monitor configuration
+	cfg := daemon.Config{
+		LogLevel: logLevel,
+	}
+
+	// Create monitor instance
+	d, err := daemon.NewMonitor(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create monitor: %w", err)
+	}
+
+	// Run reconciliation
+	if err := d.Reconcile(); err != nil {
+		return fmt.Errorf("reconciliation failed: %w", err)
+	}
+
+	fmt.Println("Reconciliation completed successfully")
+	return nil
 }

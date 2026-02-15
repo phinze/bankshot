@@ -14,8 +14,8 @@ import (
 	"github.com/phinze/bankshot/pkg/protocol"
 )
 
-// BankshotD is the server-side daemon that monitors ports and requests forwards
-type BankshotD struct {
+// Monitor is the remote-side service that monitors ports and requests forwards
+type Monitor struct {
 	logger          *slog.Logger
 	systemdMode     bool
 	pidFile         string
@@ -25,8 +25,8 @@ type BankshotD struct {
 	socketReachable bool
 }
 
-// NewBankshotD creates a new bankshotd instance
-func NewBankshotD(cfg Config) (*BankshotD, error) {
+// NewMonitor creates a new monitor instance
+func NewMonitor(cfg Config) (*Monitor, error) {
 	// Set up logger
 	var logLevel slog.Level
 	switch cfg.LogLevel {
@@ -57,7 +57,7 @@ func NewBankshotD(cfg Config) (*BankshotD, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	return &BankshotD{
+	return &Monitor{
 		logger:      logger,
 		systemdMode: cfg.SystemdMode,
 		pidFile:     cfg.PIDFile,
@@ -65,10 +65,10 @@ func NewBankshotD(cfg Config) (*BankshotD, error) {
 	}, nil
 }
 
-// Start runs bankshotd with monitoring
-func (d *BankshotD) Start(ctx context.Context) error {
+// Start runs the monitor with port monitoring
+func (d *Monitor) Start(ctx context.Context) error {
 	d.ctx = ctx
-	d.logger.Info("Starting bankshotd with port monitoring")
+	d.logger.Info("Starting monitor with port monitoring")
 
 	// Write PID file if requested
 	if d.pidFile != "" {
@@ -139,7 +139,7 @@ func (d *BankshotD) Start(ctx context.Context) error {
 	// Notify systemd we're ready
 	if d.systemdMode {
 		d.notifySystemd("READY=1")
-		d.notifySystemd("STATUS=Bankshotd monitoring ports")
+		d.notifySystemd("STATUS=Monitor monitoring ports")
 
 		// Start watchdog if configured
 		go d.watchdogLoop()
@@ -164,10 +164,10 @@ func (d *BankshotD) Start(ctx context.Context) error {
 	// Notify systemd we're stopping
 	if d.systemdMode {
 		d.notifySystemd("STOPPING=1")
-		d.notifySystemd("STATUS=Bankshotd is shutting down")
+		d.notifySystemd("STATUS=Monitor shutting down")
 	}
 
-	d.logger.Info("Bankshotd stopped")
+	d.logger.Info("Monitor stopped")
 	return nil
 }
 
@@ -208,7 +208,7 @@ func (c *localDaemonClient) SendRequest(req *protocol.Request) (*protocol.Respon
 }
 
 // notifySystemd sends a notification to systemd
-func (d *BankshotD) notifySystemd(state string) {
+func (d *Monitor) notifySystemd(state string) {
 	if !d.systemdMode {
 		return
 	}
@@ -233,7 +233,7 @@ func (d *BankshotD) notifySystemd(state string) {
 }
 
 // watchdogLoop sends periodic watchdog notifications to systemd
-func (d *BankshotD) watchdogLoop() {
+func (d *Monitor) watchdogLoop() {
 	watchdogUsec := os.Getenv("WATCHDOG_USEC")
 	if watchdogUsec == "" {
 		return
@@ -257,7 +257,7 @@ func (d *BankshotD) watchdogLoop() {
 // socketConnectivityLoop periodically probes the daemon socket to detect
 // SSH reconnection after sleep/wake. On unreachable → reachable transition,
 // it triggers reconciliation to re-establish port forwards.
-func (d *BankshotD) socketConnectivityLoop(ctx context.Context, client *localDaemonClient) {
+func (d *Monitor) socketConnectivityLoop(ctx context.Context, client *localDaemonClient) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -289,7 +289,7 @@ func (d *BankshotD) socketConnectivityLoop(ctx context.Context, client *localDae
 }
 
 // writePIDFile writes the current process ID to a file
-func (d *BankshotD) writePIDFile() error {
+func (d *Monitor) writePIDFile() error {
 	if d.pidFile == "" {
 		return nil
 	}
@@ -306,7 +306,7 @@ func (d *BankshotD) writePIDFile() error {
 }
 
 // removePIDFile removes the PID file
-func (d *BankshotD) removePIDFile() {
+func (d *Monitor) removePIDFile() {
 	if d.pidFile == "" {
 		return
 	}
@@ -319,7 +319,7 @@ func (d *BankshotD) removePIDFile() {
 // Reconcile performs VM-side reconciliation of port forwards
 // It queries the laptop daemon for existing forwards and compares with actual
 // listening ports on the VM, then sends forward/unforward requests to converge.
-func (d *BankshotD) Reconcile() error {
+func (d *Monitor) Reconcile() error {
 	d.logger.Info("Starting VM-side reconciliation")
 
 	// Create daemon client
