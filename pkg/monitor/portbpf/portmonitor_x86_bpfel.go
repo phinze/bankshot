@@ -20,6 +20,8 @@ type PortMonitorPortEvent struct {
 	Family   uint16
 	OldState int32
 	NewState int32
+	Saddr    [4]uint8
+	SaddrV6  [16]uint8
 }
 
 // LoadPortMonitor returns the embedded CollectionSpec for PortMonitor.

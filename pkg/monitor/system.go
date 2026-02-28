@@ -124,6 +124,7 @@ func (m *SystemMonitor) checkPorts() {
 				PID:       pid,
 				Port:      knownPort.Port,
 				Protocol:  knownPort.Protocol,
+				BindAddr:  knownPort.BindAddr,
 				Timestamp: time.Now(),
 			}
 
@@ -185,6 +186,7 @@ func (m *SystemMonitor) processPendingPorts() {
 						PID:       pid,
 						Port:      port.Port,
 						Protocol:  port.Protocol,
+						BindAddr:  port.BindAddr,
 						Timestamp: time.Now(),
 					}
 

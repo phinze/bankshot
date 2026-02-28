@@ -63,6 +63,8 @@ struct port_event {
 	__u16 family;
 	__s32 old_state;
 	__s32 new_state;
+	__u8 saddr[4];     // IPv4 bind address
+	__u8 saddr_v6[16]; // IPv6 bind address
 };
 
 SEC("tracepoint/sock/inet_sock_set_state")
@@ -84,6 +86,8 @@ int trace_inet_sock_set_state(struct inet_sock_set_state_args *ctx) {
 		.old_state = old_state,
 		.new_state = new_state,
 	};
+	__builtin_memcpy(evt.saddr, ctx->saddr, 4);
+	__builtin_memcpy(evt.saddr_v6, ctx->saddr_v6, 16);
 
 	bpf_perf_event_output(ctx, &events, 0xffffffffULL, &evt, sizeof(evt));
 	return 0;

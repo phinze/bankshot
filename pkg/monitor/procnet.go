@@ -2,7 +2,9 @@ package monitor
 
 import (
 	"bufio"
+	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -13,6 +15,7 @@ type Port struct {
 	Port     int
 	Protocol string // "tcp" or "tcp6"
 	State    string // Connection state
+	BindAddr string // Bind address (e.g. "0.0.0.0", "127.0.0.1", "::1")
 }
 
 // parseProcNet parses /proc/net/tcp or /proc/net/tcp6 files
@@ -46,6 +49,10 @@ func parseProcNet(path string, protocol string) ([]Port, error) {
 			continue
 		}
 
+		// Parse hex IP address
+		addrHex := parts[0]
+		bindAddr := parseHexAddr(addrHex, protocol)
+
 		// Parse hex port
 		portHex := parts[1]
 		portNum, err := strconv.ParseInt(portHex, 16, 64)
@@ -63,6 +70,7 @@ func parseProcNet(path string, protocol string) ([]Port, error) {
 				Port:     int(portNum),
 				Protocol: protocol,
 				State:    state,
+				BindAddr: bindAddr,
 			})
 		}
 	}
@@ -109,6 +117,47 @@ func GetListeningPorts() ([]Port, error) {
 	}
 
 	return allPorts, nil
+}
+
+// parseHexAddr decodes the hex IP address from /proc/net/tcp{,6} format.
+// IPv4 (/proc/net/tcp): 8 hex chars, little-endian 32-bit integer.
+// IPv6 (/proc/net/tcp6): 32 hex chars, four little-endian 32-bit words.
+func parseHexAddr(hexStr string, protocol string) string {
+	b, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return ""
+	}
+
+	if protocol == "tcp" && len(b) == 4 {
+		// IPv4: stored as little-endian 32-bit, so bytes are reversed
+		ip := net.IPv4(b[3], b[2], b[1], b[0])
+		return ip.String()
+	}
+
+	if protocol == "tcp6" && len(b) == 16 {
+		// IPv6: four groups of little-endian 32-bit words
+		ip := make(net.IP, 16)
+		for i := 0; i < 4; i++ {
+			off := i * 4
+			ip[off] = b[off+3]
+			ip[off+1] = b[off+2]
+			ip[off+2] = b[off+1]
+			ip[off+3] = b[off]
+		}
+		return ip.String()
+	}
+
+	return ""
+}
+
+// IsLocalAddr returns true if the address is a wildcard or loopback address
+// that should be considered for port forwarding.
+func IsLocalAddr(addr string) bool {
+	switch addr {
+	case "0.0.0.0", "127.0.0.1", "::", "::1":
+		return true
+	}
+	return false
 }
 
 // GetProcessListeningPorts returns ports for a specific process

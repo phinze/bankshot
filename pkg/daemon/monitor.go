@@ -398,7 +398,7 @@ func (d *Monitor) Reconcile() error {
 	// Build set of VM ports that should be auto-forwarded
 	vmListeningInRange := make(map[int]bool)
 	for _, port := range vmPorts {
-		if monitor.ShouldForwardPort(port.Port, portRanges, ignorePortsMap) {
+		if monitor.ShouldForwardPort(port.Port, port.BindAddr, portRanges, ignorePortsMap) {
 			vmListeningInRange[port.Port] = true
 		}
 	}

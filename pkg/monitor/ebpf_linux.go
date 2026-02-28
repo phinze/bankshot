@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -87,6 +88,7 @@ func (m *ebpfMonitor) Start(ctx context.Context) error {
 			Type:      PortOpened,
 			Port:      p.Port,
 			Protocol:  p.Protocol,
+			BindAddr:  p.BindAddr,
 			Timestamp: time.Now(),
 		}
 	}
@@ -126,8 +128,9 @@ func (m *ebpfMonitor) readLoop(ctx context.Context, reader *perf.Reader, tp link
 		}
 
 		raw := record.RawSample
-		// port_event is 16 bytes: u32 pid, u16 sport, u16 family, s32 old_state, s32 new_state
-		if len(raw) < 16 {
+		// port_event: u32 pid, u16 sport, u16 family, s32 old_state, s32 new_state,
+		//             u8 saddr[4], u8 saddr_v6[16] = 36 bytes
+		if len(raw) < 36 {
 			m.logger.Debug("eBPF event too short", "len", len(raw))
 			continue
 		}
@@ -153,11 +156,22 @@ func (m *ebpfMonitor) readLoop(ctx context.Context, reader *perf.Reader, tp link
 			continue
 		}
 
+		// Extract bind address from saddr/saddr_v6
+		var bindAddr string
+		if family == 10 { // AF_INET6
+			ip := net.IP(raw[20:36])
+			bindAddr = ip.String()
+		} else { // AF_INET
+			ip := net.IPv4(raw[16], raw[17], raw[18], raw[19])
+			bindAddr = ip.String()
+		}
+
 		pe := PortEvent{
 			Type:      evtType,
 			PID:       int(pid),
 			Port:      int(sport),
 			Protocol:  protocol,
+			BindAddr:  bindAddr,
 			Timestamp: time.Now(),
 		}
 

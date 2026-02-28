@@ -123,9 +123,10 @@ func (m *SessionMonitor) handleEvents(ctx context.Context) {
 // handlePortEvent processes a single port event
 func (m *SessionMonitor) handlePortEvent(event PortEvent) {
 	// Check if port should be auto-forwarded
-	if !m.shouldForwardPort(event.Port) {
+	if !m.shouldForwardPort(event.Port, event.BindAddr) {
 		m.logger.Debug("Port excluded from auto-forwarding",
-			"port", event.Port)
+			"port", event.Port,
+			"bindAddr", event.BindAddr)
 		return
 	}
 
@@ -320,10 +321,14 @@ func (m *SessionMonitor) removeForward(fwd ForwardInfo) {
 }
 
 // ShouldForwardPort determines whether a port should be auto-forwarded.
+// Ports bound to non-local addresses (e.g. Tailscale, LAN IPs) are skipped.
 // When portRanges is non-empty, the port must fall within one of the ranges.
 // When portRanges is empty/nil, all non-privileged ports (>= 1024) are forwarded.
 // Ports in ignorePorts are never forwarded regardless of other settings.
-func ShouldForwardPort(port int, portRanges []PortRange, ignorePorts map[int]bool) bool {
+func ShouldForwardPort(port int, bindAddr string, portRanges []PortRange, ignorePorts map[int]bool) bool {
+	if !IsLocalAddr(bindAddr) {
+		return false
+	}
 	if ignorePorts[port] {
 		return false
 	}
@@ -339,8 +344,8 @@ func ShouldForwardPort(port int, portRanges []PortRange, ignorePorts map[int]boo
 }
 
 // shouldForwardPort checks if a port should be auto-forwarded using this monitor's config
-func (m *SessionMonitor) shouldForwardPort(port int) bool {
-	return ShouldForwardPort(port, m.portRanges, m.ignorePorts)
+func (m *SessionMonitor) shouldForwardPort(port int, bindAddr string) bool {
+	return ShouldForwardPort(port, bindAddr, m.portRanges, m.ignorePorts)
 }
 
 // cleanup removes all forwards on shutdown

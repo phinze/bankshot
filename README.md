@@ -118,6 +118,7 @@ On remote servers, `bankshot monitor` automatically forwards ports without needi
 
 - Monitors all processes owned by your user on the remote server
 - Automatically detects when processes bind to ports
+- Only forwards ports bound to local/wildcard addresses (`0.0.0.0`, `127.0.0.1`, `::`, `::1`) — skips ports bound to Tailscale, LAN, or other non-local interfaces
 - Requests forwards from the local daemon immediately
 - Cleans up forwards when processes exit (after a grace period)
 

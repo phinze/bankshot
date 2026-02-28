@@ -15,6 +15,7 @@ type PortEvent struct {
 	Protocol    string
 	ProcessName string
 	ProcessCmd  string
+	BindAddr    string
 	Timestamp   time.Time
 }
 
@@ -146,6 +147,7 @@ func (m *Monitor) checkPorts() {
 				PID:       m.pid,
 				Port:      knownPort.Port,
 				Protocol:  knownPort.Protocol,
+				BindAddr:  knownPort.BindAddr,
 				Timestamp: time.Now(),
 			}
 
@@ -203,6 +205,7 @@ func (m *Monitor) processPendingPorts() {
 						PID:       m.pid,
 						Port:      port.Port,
 						Protocol:  port.Protocol,
+						BindAddr:  port.BindAddr,
 						Timestamp: time.Now(),
 					}
 
