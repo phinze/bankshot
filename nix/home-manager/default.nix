@@ -18,6 +18,7 @@ with lib; let
   } // {
     monitor = {
       portRanges = cfg.monitor.portRanges;
+      ignorePorts = cfg.monitor.ignorePorts;
       ignoreProcesses = cfg.monitor.ignoreProcesses;
       pollInterval = cfg.monitor.pollInterval;
       gracePeriod = cfg.monitor.gracePeriod;
@@ -92,13 +93,18 @@ in {
             };
           };
         });
-        default = [
-          {
-            start = 3000;
-            end = 9999;
-          }
-        ];
-        description = "Port ranges to automatically forward (applies to bankshot monitor on remote servers)";
+        default = [];
+        description = ''
+          Port ranges to automatically forward. When empty (default), all
+          non-privileged ports (>= 1024) are forwarded. Set explicitly to
+          restrict to specific ranges.
+        '';
+      };
+
+      ignorePorts = mkOption {
+        type = types.listOf types.int;
+        default = [];
+        description = "Specific ports to never auto-forward (applies to bankshot monitor on remote servers)";
       };
 
       ignoreProcesses = mkOption {

@@ -92,13 +92,14 @@ func (d *Monitor) Start(ctx context.Context) error {
 	sessionID := hostname
 
 	// Parse monitor config from main config
-	portRanges := []monitor.PortRange{{Start: 3000, End: 9999}} // Default
+	var portRanges []monitor.PortRange // nil = forward all non-privileged ports (>= 1024)
+	ignorePorts := d.config.Monitor.IgnorePorts
 	ignoreProcesses := []string{"sshd", "systemd", "ssh-agent"}
 	pollInterval := 5 * time.Second // Default to 5s for reasonable CPU usage
 	gracePeriod := 30 * time.Second
 
 	// Override with config if present
-	if d.config.Monitor.PortRanges != nil {
+	if len(d.config.Monitor.PortRanges) > 0 {
 		portRanges = make([]monitor.PortRange, len(d.config.Monitor.PortRanges))
 		for i, pr := range d.config.Monitor.PortRanges {
 			portRanges[i] = monitor.PortRange{Start: pr.Start, End: pr.End}
@@ -126,6 +127,7 @@ func (d *Monitor) Start(ctx context.Context) error {
 		SessionID:       sessionID,
 		DaemonClient:    daemonClient,
 		PortRanges:      portRanges,
+		IgnorePorts:     ignorePorts,
 		IgnoreProcesses: ignoreProcesses,
 		GracePeriod:     gracePeriod,
 		Logger:          d.logger,
@@ -374,13 +376,17 @@ func (d *Monitor) Reconcile() error {
 		return fmt.Errorf("failed to get VM listening ports: %w", err)
 	}
 
-	// Parse port ranges from config
-	portRanges := []monitor.PortRange{{Start: 3000, End: 9999}} // Default
-	if d.config.Monitor.PortRanges != nil {
+	// Parse port ranges and ignore ports from config
+	var portRanges []monitor.PortRange
+	if len(d.config.Monitor.PortRanges) > 0 {
 		portRanges = make([]monitor.PortRange, len(d.config.Monitor.PortRanges))
 		for i, pr := range d.config.Monitor.PortRanges {
 			portRanges[i] = monitor.PortRange{Start: pr.Start, End: pr.End}
 		}
+	}
+	ignorePortsMap := make(map[int]bool, len(d.config.Monitor.IgnorePorts))
+	for _, p := range d.config.Monitor.IgnorePorts {
+		ignorePortsMap[p] = true
 	}
 
 	// Build set of ALL VM listening ports (for detecting stale forwards)
@@ -389,20 +395,17 @@ func (d *Monitor) Reconcile() error {
 		allVMListening[port.Port] = true
 	}
 
-	// Build set of VM ports in our auto-forward range (for discovering new forwards)
+	// Build set of VM ports that should be auto-forwarded
 	vmListeningInRange := make(map[int]bool)
 	for _, port := range vmPorts {
-		for _, pr := range portRanges {
-			if port.Port >= pr.Start && port.Port <= pr.End {
-				vmListeningInRange[port.Port] = true
-				break
-			}
+		if monitor.ShouldForwardPort(port.Port, portRanges, ignorePortsMap) {
+			vmListeningInRange[port.Port] = true
 		}
 	}
 
 	d.logger.Debug("VM ports listening",
 		"total", len(allVMListening),
-		"inConfiguredRange", len(vmListeningInRange))
+		"shouldForward", len(vmListeningInRange))
 
 	// Reconcile: determine what actions to take
 	var toForward, toUnforward []int

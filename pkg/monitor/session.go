@@ -19,6 +19,7 @@ type SessionMonitor struct {
 	daemonClient    DaemonClient
 	logger          *slog.Logger
 	portRanges      []PortRange
+	ignorePorts     map[int]bool
 	ignoreProcesses []string
 	gracePeriod     time.Duration
 	activeForwards  map[string]ForwardInfo // key: "port" (PID not needed)
@@ -51,6 +52,7 @@ type SessionConfig struct {
 	SessionID       string
 	DaemonClient    DaemonClient
 	PortRanges      []PortRange
+	IgnorePorts     []int
 	IgnoreProcesses []string
 	GracePeriod     time.Duration
 	Logger          *slog.Logger
@@ -59,12 +61,18 @@ type SessionConfig struct {
 
 // NewSessionMonitor creates a new session monitor
 func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
+	ignoreMap := make(map[int]bool, len(cfg.IgnorePorts))
+	for _, p := range cfg.IgnorePorts {
+		ignoreMap[p] = true
+	}
+
 	return &SessionMonitor{
 		sessionID:       cfg.SessionID,
 		systemMonitor:   cfg.PortEventSource,
 		daemonClient:    cfg.DaemonClient,
 		logger:          cfg.Logger,
 		portRanges:      cfg.PortRanges,
+		ignorePorts:     ignoreMap,
 		ignoreProcesses: cfg.IgnoreProcesses,
 		gracePeriod:     cfg.GracePeriod,
 		activeForwards:  make(map[string]ForwardInfo),
@@ -114,11 +122,10 @@ func (m *SessionMonitor) handleEvents(ctx context.Context) {
 
 // handlePortEvent processes a single port event
 func (m *SessionMonitor) handlePortEvent(event PortEvent) {
-	// Check if port is in auto-forward range
-	if !m.isPortInRange(event.Port) {
-		m.logger.Debug("Port outside auto-forward range",
-			"port", event.Port,
-			"ranges", m.portRanges)
+	// Check if port should be auto-forwarded
+	if !m.shouldForwardPort(event.Port) {
+		m.logger.Debug("Port excluded from auto-forwarding",
+			"port", event.Port)
 		return
 	}
 
@@ -312,14 +319,28 @@ func (m *SessionMonitor) removeForward(fwd ForwardInfo) {
 	}
 }
 
-// isPortInRange checks if a port is within auto-forward ranges
-func (m *SessionMonitor) isPortInRange(port int) bool {
-	for _, r := range m.portRanges {
-		if port >= r.Start && port <= r.End {
-			return true
-		}
+// ShouldForwardPort determines whether a port should be auto-forwarded.
+// When portRanges is non-empty, the port must fall within one of the ranges.
+// When portRanges is empty/nil, all non-privileged ports (>= 1024) are forwarded.
+// Ports in ignorePorts are never forwarded regardless of other settings.
+func ShouldForwardPort(port int, portRanges []PortRange, ignorePorts map[int]bool) bool {
+	if ignorePorts[port] {
+		return false
 	}
-	return false
+	if len(portRanges) > 0 {
+		for _, r := range portRanges {
+			if port >= r.Start && port <= r.End {
+				return true
+			}
+		}
+		return false
+	}
+	return port >= 1024
+}
+
+// shouldForwardPort checks if a port should be auto-forwarded using this monitor's config
+func (m *SessionMonitor) shouldForwardPort(port int) bool {
+	return ShouldForwardPort(port, m.portRanges, m.ignorePorts)
 }
 
 // cleanup removes all forwards on shutdown

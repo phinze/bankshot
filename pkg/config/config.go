@@ -32,6 +32,7 @@ type Config struct {
 // MonitorConfig represents the configuration for bankshot monitor
 type MonitorConfig struct {
 	PortRanges      []PortRange `yaml:"portRanges,omitempty"`
+	IgnorePorts     []int       `yaml:"ignorePorts,omitempty"`
 	IgnoreProcesses []string    `yaml:"ignoreProcesses,omitempty"`
 	PollInterval    string      `yaml:"pollInterval,omitempty"`
 	GracePeriod     string      `yaml:"gracePeriod,omitempty"`

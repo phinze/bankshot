@@ -125,7 +125,7 @@ On remote servers, `bankshot monitor` automatically forwards ports without needi
 
 1. Install bankshot on your remote servers
 2. Start `bankshot monitor` (via systemd or manually)
-3. Any port your processes bind to (in the configured range, default 3000-9999) will be automatically forwarded
+3. Any port your processes bind to (all non-privileged ports by default) will be automatically forwarded
 
 **Configuration:**
 
@@ -133,9 +133,12 @@ Configure `bankshot monitor` behavior in `~/.config/bankshot/config.yaml`:
 
 ```yaml
 monitor:
-  portRanges:
-    - start: 3000
-      end: 9999
+  # By default, all non-privileged ports (>= 1024) are auto-forwarded.
+  # To restrict to specific ranges, uncomment:
+  # portRanges:
+  #   - start: 3000
+  #     end: 9999
+  ignorePorts: []        # specific ports to never auto-forward
   ignoreProcesses:
     - sshd
     - systemd
