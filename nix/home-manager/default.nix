@@ -15,6 +15,8 @@ with lib; let
     address = "~/.bankshot.sock";
     log_level = cfg.daemon.logLevel;
     ssh_command = "ssh";
+  } // lib.optionalAttrs (cfg.notifyPackage != null) {
+    notify_command = "${config.home.homeDirectory}/Applications/BankshotNotify.app/Contents/MacOS/bankshot-notify";
   } // {
     monitor = {
       portRanges = cfg.monitor.portRanges;
@@ -38,6 +40,31 @@ in {
         else throw "bankshot package must be provided when not using the flake module";
       defaultText = literalExpression "bankshot.packages.\${system}.default";
       description = "The bankshot package to install.";
+    };
+
+    notifyPackage = mkOption {
+      type = types.nullOr types.package;
+      default =
+        if bankshotPackages != null && (bankshotPackages.${pkgs.system} ? bankshot-notify)
+        then bankshotPackages.${pkgs.system}.bankshot-notify
+        else null;
+      defaultText = literalExpression "bankshot-notify on darwin, null otherwise";
+      description = ''
+        The bankshot-notify package for native desktop notifications.
+        Set to null to disable notifications. The app bundle is copied to
+        ~/Applications and code-signed at activation time.
+      '';
+    };
+
+    notifySigningIdentity = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "Developer ID Application: Jane Smith (TEAMID)";
+      description = ''
+        Code signing identity for the notification helper app.
+        When null (default), tries to find a Developer ID certificate
+        in the keychain and falls back to ad-hoc signing.
+      '';
     };
 
     enableXdgOpen = mkOption {
@@ -158,6 +185,47 @@ in {
         mkdir -p $out/bin
         ln -s ${cfg.package}/bin/bankshot $out/bin/xdg-open
       '');
+
+    # Install and code-sign the notification helper app bundle.
+    # UNUserNotificationCenter requires a signed app bundle to allow
+    # notification authorization. We copy to ~/Applications so the
+    # bundle is mutable (Nix store is read-only) and sign it there.
+    home.activation.bankshotNotify = lib.mkIf (cfg.notifyPackage != null) (
+      lib.hm.dag.entryAfter ["writeBoundary"] ''
+        app_src="${cfg.notifyPackage}/Applications/BankshotNotify.app"
+        app_dst="$HOME/Applications/BankshotNotify.app"
+
+        # Copy app bundle (overwrite previous version)
+        mkdir -p "$HOME/Applications"
+        rm -rf "$app_dst"
+        cp -R "$app_src" "$app_dst"
+        chmod -R u+w "$app_dst"
+
+        # Sign: use explicit identity, or auto-detect Developer ID, or ad-hoc
+        identity=""
+        ${lib.optionalString (cfg.notifySigningIdentity != null) ''
+          identity=${lib.escapeShellArg cfg.notifySigningIdentity}
+        ''}
+        if [ -z "$identity" ]; then
+          # Try to find a signing certificate (prefer Developer ID, then Apple Development)
+          for pattern in "Developer ID Application" "Apple Development"; do
+            if /usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+               | grep -q "$pattern"; then
+              identity=$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+                | grep "$pattern" | head -1 \
+                | sed 's/.*"\(.*\)".*/\1/')
+              break
+            fi
+          done
+        fi
+
+        if [ -n "$identity" ]; then
+          run /usr/bin/codesign --force --deep -s "$identity" "$app_dst"
+        else
+          run /usr/bin/codesign --force --deep -s - "$app_dst"
+        fi
+      ''
+    );
 
     # Systemd user service for daemon
     systemd.user.services.bankshot-monitor = mkIf cfg.daemon.enable {

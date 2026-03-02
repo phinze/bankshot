@@ -75,6 +75,30 @@
           };
         };
         default = bankshot;
+      } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
+        bankshot-notify = pkgs.swiftPackages.stdenv.mkDerivation {
+          pname = "bankshot-notify";
+          version = "1.0";
+
+          src = ./swift/BankshotNotify;
+
+          nativeBuildInputs = [pkgs.swiftPackages.swift];
+
+          buildPhase = ''
+            swiftc \
+              -O \
+              -framework UserNotifications \
+              -framework AppKit \
+              -o bankshot-notify \
+              main.swift
+          '';
+
+          installPhase = ''
+            mkdir -p "$out/Applications/BankshotNotify.app/Contents/MacOS"
+            cp bankshot-notify "$out/Applications/BankshotNotify.app/Contents/MacOS/"
+            cp Info.plist "$out/Applications/BankshotNotify.app/Contents/Info.plist"
+          '';
+        };
       };
 
       apps.default = flake-utils.lib.mkApp {

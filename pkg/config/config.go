@@ -25,6 +25,10 @@ type Config struct {
 	// SSHCommand is the path to ssh binary
 	SSHCommand string `yaml:"ssh_command"`
 
+	// NotifyCommand is the path to the notification helper binary.
+	// When set, desktop notifications are posted for new port forwards.
+	NotifyCommand string `yaml:"notify_command,omitempty"`
+
 	// Monitor configuration (for bankshot monitor on remote servers)
 	Monitor MonitorConfig `yaml:"monitor,omitempty"`
 }

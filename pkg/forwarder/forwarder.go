@@ -39,8 +39,10 @@ func New(logger *slog.Logger, sshCmd string) *Forwarder {
 	}
 }
 
-// AddForward creates a new port forward
-func (f *Forwarder) AddForward(socketPath string, connectionInfo string, remotePort, localPort int, host string) error {
+// AddForward creates a new port forward.
+// Returns (true, nil) when a new forward is established, (false, nil) when the
+// port was already forwarded, or (false, err) on failure.
+func (f *Forwarder) AddForward(socketPath string, connectionInfo string, remotePort, localPort int, host string) (bool, error) {
 	if host == "" {
 		host = "localhost"
 	}
@@ -59,7 +61,7 @@ func (f *Forwarder) AddForward(socketPath string, connectionInfo string, remoteP
 			"remote", fmt.Sprintf("%s:%d", host, remotePort),
 			"local", existing.LocalPort,
 		)
-		return nil
+		return false, nil
 	}
 	f.mu.RUnlock()
 
@@ -80,7 +82,7 @@ func (f *Forwarder) AddForward(socketPath string, connectionInfo string, remoteP
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to forward port: %w (output: %s)", err, string(output))
+		return false, fmt.Errorf("failed to forward port: %w (output: %s)", err, string(output))
 	}
 
 	// Store forward info
@@ -102,7 +104,7 @@ func (f *Forwarder) AddForward(socketPath string, connectionInfo string, remoteP
 		"local", localPort,
 	)
 
-	return nil
+	return true, nil
 }
 
 // RegisterExistingForward registers a forward that already exists (e.g., discovered on startup)

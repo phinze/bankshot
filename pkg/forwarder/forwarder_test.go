@@ -76,7 +76,7 @@ func TestAddForward(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := f.AddForward(tt.socketPath, tt.connectionInfo, tt.remotePort, tt.localPort, tt.host)
+			_, err := f.AddForward(tt.socketPath, tt.connectionInfo, tt.remotePort, tt.localPort, tt.host)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AddForward() error = %v, wantErr %v", err, tt.wantErr)
 			}

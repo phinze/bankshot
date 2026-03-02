@@ -17,6 +17,7 @@ import (
 
 	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/forwarder"
+	"github.com/phinze/bankshot/pkg/notify"
 	"github.com/phinze/bankshot/pkg/opener"
 	"github.com/phinze/bankshot/pkg/protocol"
 	"github.com/phinze/bankshot/version"
@@ -32,6 +33,7 @@ type Daemon struct {
 	cancel      context.CancelFunc
 	opener      *opener.Opener
 	forwarder   *forwarder.Forwarder
+	notifier    *notify.Notifier
 	startTime   time.Time
 	systemdMode bool   // Running under systemd
 	pidFile     string // PID file path
@@ -47,6 +49,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		cancel:    cancel,
 		opener:    opener.New(logger),
 		forwarder: forwarder.New(logger, cfg.SSHCommand),
+		notifier:  notify.New(logger, cfg.NotifyCommand),
 		startTime: time.Now(),
 	}
 }
@@ -373,7 +376,8 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 	}
 
 	// Add forward
-	if err := d.forwarder.AddForward(socketPath, forwardReq.ConnectionInfo, forwardReq.RemotePort, forwardReq.LocalPort, forwardReq.Host); err != nil {
+	created, err := d.forwarder.AddForward(socketPath, forwardReq.ConnectionInfo, forwardReq.RemotePort, forwardReq.LocalPort, forwardReq.Host)
+	if err != nil {
 		return protocol.NewErrorResponse(req.ID, err)
 	}
 
@@ -385,6 +389,11 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 	localPort := forwardReq.LocalPort
 	if localPort == 0 {
 		localPort = forwardReq.RemotePort
+	}
+
+	// Notify on new forwards (not duplicates from reconciliation)
+	if created {
+		d.notifier.NotifyForward(forwardReq.RemotePort, localPort, host)
 	}
 
 	// Return success
