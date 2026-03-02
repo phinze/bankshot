@@ -160,6 +160,16 @@ func IsLocalAddr(addr string) bool {
 	return false
 }
 
+// ResolveProcessName reads /proc/<pid>/comm and returns the process name.
+// Returns empty string if the process is gone or unreadable.
+func ResolveProcessName(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // GetProcessListeningPorts returns ports for a specific process
 func GetProcessListeningPorts(pid int) ([]Port, error) {
 	var allPorts []Port

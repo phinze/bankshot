@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,17 +15,18 @@ import (
 
 // SessionMonitor manages port forwarding for an SSH session
 type SessionMonitor struct {
-	sessionID       string
-	systemMonitor   PortEventSource
-	daemonClient    DaemonClient
-	logger          *slog.Logger
-	portRanges      []PortRange
-	ignorePorts     map[int]bool
-	ignoreProcesses []string
-	gracePeriod     time.Duration
-	activeForwards  map[string]ForwardInfo // key: "port" (PID not needed)
-	pendingRemovals map[string]time.Time   // forwards pending removal
-	mutex           sync.RWMutex
+	sessionID          string
+	systemMonitor      PortEventSource
+	daemonClient       DaemonClient
+	logger             *slog.Logger
+	portRanges         []PortRange
+	ignorePorts        map[int]bool
+	ignoreProcesses    []string
+	resolveProcessName func(pid int) string // defaults to ResolveProcessName
+	gracePeriod        time.Duration
+	activeForwards     map[string]ForwardInfo // key: "port" (PID not needed)
+	pendingRemovals    map[string]time.Time   // forwards pending removal
+	mutex              sync.RWMutex
 }
 
 // PortRange defines a range of ports to auto-forward
@@ -67,16 +69,17 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 	}
 
 	return &SessionMonitor{
-		sessionID:       cfg.SessionID,
-		systemMonitor:   cfg.PortEventSource,
-		daemonClient:    cfg.DaemonClient,
-		logger:          cfg.Logger,
-		portRanges:      cfg.PortRanges,
-		ignorePorts:     ignoreMap,
-		ignoreProcesses: cfg.IgnoreProcesses,
-		gracePeriod:     cfg.GracePeriod,
-		activeForwards:  make(map[string]ForwardInfo),
-		pendingRemovals: make(map[string]time.Time),
+		sessionID:          cfg.SessionID,
+		systemMonitor:      cfg.PortEventSource,
+		daemonClient:       cfg.DaemonClient,
+		logger:             cfg.Logger,
+		portRanges:         cfg.PortRanges,
+		ignorePorts:        ignoreMap,
+		ignoreProcesses:    cfg.IgnoreProcesses,
+		resolveProcessName: ResolveProcessName,
+		gracePeriod:        cfg.GracePeriod,
+		activeForwards:     make(map[string]ForwardInfo),
+		pendingRemovals:    make(map[string]time.Time),
 	}, nil
 }
 
@@ -128,6 +131,22 @@ func (m *SessionMonitor) handlePortEvent(event PortEvent) {
 			"port", event.Port,
 			"bindAddr", event.BindAddr)
 		return
+	}
+
+	// Check if the process should be ignored (only when we have a PID and ignore list)
+	if len(m.ignoreProcesses) > 0 && event.PID != 0 {
+		name := event.ProcessName
+		if name == "" {
+			name = m.resolveProcessName(event.PID)
+			event.ProcessName = name
+		}
+		if m.shouldIgnoreProcess(name) {
+			m.logger.Info("Ignoring port event from excluded process",
+				"port", event.Port,
+				"pid", event.PID,
+				"process", name)
+			return
+		}
 	}
 
 	// Use port as key (we don't track by PID anymore since we monitor system-wide)
@@ -346,6 +365,18 @@ func ShouldForwardPort(port int, bindAddr string, portRanges []PortRange, ignore
 // shouldForwardPort checks if a port should be auto-forwarded using this monitor's config
 func (m *SessionMonitor) shouldForwardPort(port int, bindAddr string) bool {
 	return ShouldForwardPort(port, bindAddr, m.portRanges, m.ignorePorts)
+}
+
+// shouldIgnoreProcess checks if a process name matches any entry in ignoreProcesses
+// using case-insensitive substring matching.
+func (m *SessionMonitor) shouldIgnoreProcess(name string) bool {
+	lower := strings.ToLower(name)
+	for _, ignore := range m.ignoreProcesses {
+		if strings.Contains(lower, strings.ToLower(ignore)) {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanup removes all forwards on shutdown

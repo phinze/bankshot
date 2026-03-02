@@ -1,6 +1,38 @@
 package monitor
 
-import "testing"
+import (
+	"log/slog"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/phinze/bankshot/pkg/protocol"
+)
+
+// mockDaemonClient records forward/unforward requests for test assertions
+type mockDaemonClient struct {
+	mu       sync.Mutex
+	requests []*protocol.Request
+}
+
+func (m *mockDaemonClient) SendRequest(req *protocol.Request) (*protocol.Response, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests = append(m.requests, req)
+	return &protocol.Response{Success: true}, nil
+}
+
+func (m *mockDaemonClient) forwardCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, r := range m.requests {
+		if r.Type == protocol.CommandForward {
+			count++
+		}
+	}
+	return count
+}
 
 func TestShouldForwardPort(t *testing.T) {
 	tests := []struct {
@@ -150,6 +182,114 @@ func TestParseHexAddr(t *testing.T) {
 			got := parseHexAddr(tt.hexStr, tt.protocol)
 			if got != tt.want {
 				t.Errorf("parseHexAddr(%q, %q) = %q, want %q", tt.hexStr, tt.protocol, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandlePortEvent_IgnoreProcesses(t *testing.T) {
+	// Stub process name resolver so tests don't touch /proc
+	stubResolver := func(pid int) string {
+		switch pid {
+		case 100:
+			return "registry"
+		case 200:
+			return "node"
+		default:
+			return ""
+		}
+	}
+
+	tests := []struct {
+		name            string
+		ignoreProcesses []string
+		event           PortEvent
+		wantForward     bool
+	}{
+		{
+			name:            "ignored process is filtered",
+			ignoreProcesses: []string{"registry"},
+			event: PortEvent{
+				Type: PortOpened, PID: 100, Port: 5000,
+				BindAddr: "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: false,
+		},
+		{
+			name:            "non-ignored process is forwarded",
+			ignoreProcesses: []string{"registry"},
+			event: PortEvent{
+				Type: PortOpened, PID: 200, Port: 3000,
+				BindAddr: "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: true,
+		},
+		{
+			name:            "PID 0 bypasses process filter",
+			ignoreProcesses: []string{"registry"},
+			event: PortEvent{
+				Type: PortOpened, PID: 0, Port: 5000,
+				BindAddr: "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: true,
+		},
+		{
+			name:            "case-insensitive match",
+			ignoreProcesses: []string{"Registry"},
+			event: PortEvent{
+				Type: PortOpened, PID: 100, Port: 5000,
+				BindAddr: "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: false,
+		},
+		{
+			name:            "substring match",
+			ignoreProcesses: []string{"regist"},
+			event: PortEvent{
+				Type: PortOpened, PID: 100, Port: 5000,
+				BindAddr: "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: false,
+		},
+		{
+			name:            "empty ignore list forwards everything",
+			ignoreProcesses: nil,
+			event: PortEvent{
+				Type: PortOpened, PID: 100, Port: 5000,
+				BindAddr: "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: true,
+		},
+		{
+			name:            "event with ProcessName already set skips resolve",
+			ignoreProcesses: []string{"registry"},
+			event: PortEvent{
+				Type: PortOpened, PID: 999, Port: 5000,
+				ProcessName: "registry",
+				BindAddr:    "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &mockDaemonClient{}
+			sm := &SessionMonitor{
+				sessionID:          "test",
+				daemonClient:       client,
+				logger:             slog.Default(),
+				ignoreProcesses:    tt.ignoreProcesses,
+				resolveProcessName: stubResolver,
+				activeForwards:     make(map[string]ForwardInfo),
+				pendingRemovals:    make(map[string]time.Time),
+			}
+
+			sm.handlePortEvent(tt.event)
+
+			got := client.forwardCount() > 0
+			if got != tt.wantForward {
+				t.Errorf("forward created = %v, want %v", got, tt.wantForward)
 			}
 		})
 	}
