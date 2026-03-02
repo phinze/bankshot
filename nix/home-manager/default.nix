@@ -80,7 +80,7 @@ in {
       enable = mkOption {
         type = types.bool;
         default = false;
-        description = "Enable the bankshot daemon as a systemd user service";
+        description = "Enable the bankshot daemon service (launchd on macOS, systemd on Linux)";
       };
 
       autoStart = mkOption {
@@ -227,8 +227,23 @@ in {
       ''
     );
 
-    # Systemd user service for daemon
-    systemd.user.services.bankshot-monitor = mkIf cfg.daemon.enable {
+    # Launchd agent for daemon (macOS)
+    launchd.agents.bankshot = mkIf (cfg.daemon.enable && pkgs.stdenv.isDarwin) {
+      enable = true;
+      config = {
+        ProgramArguments = [
+          "${cfg.package}/bin/bankshotd"
+          "--config" "${configFile}"
+        ];
+        KeepAlive = true;
+        RunAtLoad = cfg.daemon.autoStart;
+        StandardOutPath = "${config.home.homeDirectory}/Library/Logs/bankshotd.log";
+        StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/bankshotd.error.log";
+      };
+    };
+
+    # Systemd user service for monitor (Linux remote servers)
+    systemd.user.services.bankshot-monitor = mkIf (cfg.daemon.enable && pkgs.stdenv.isLinux) {
       Unit = {
         Description = "Bankshot monitor - automatic port forwarding";
         Documentation = "https://github.com/phinze/bankshot";
