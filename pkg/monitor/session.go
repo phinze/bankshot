@@ -215,7 +215,9 @@ func (m *SessionMonitor) requestForward(key string, event PortEvent) {
 
 	m.logger.Info("Requesting auto-forward",
 		"port", event.Port,
-		"protocol", event.Protocol)
+		"protocol", event.Protocol,
+		"pid", event.PID,
+		"process", event.ProcessName)
 
 	resp, err := m.daemonClient.SendRequest(req)
 	if err != nil {
@@ -243,7 +245,9 @@ func (m *SessionMonitor) requestForward(key string, event PortEvent) {
 
 	m.logger.Info("Auto-forward created",
 		"port", event.Port,
-		"protocol", event.Protocol)
+		"protocol", event.Protocol,
+		"pid", event.PID,
+		"process", event.ProcessName)
 }
 
 // handlePortClosed marks a forward for removal after grace period
