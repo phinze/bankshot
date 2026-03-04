@@ -21,6 +21,8 @@ const (
 	CommandList CommandType = "list"
 	// CommandReconcile triggers immediate forward reconciliation
 	CommandReconcile CommandType = "reconcile"
+	// CommandOpProxy proxies 1Password CLI requests to the local machine
+	CommandOpProxy CommandType = "op-proxy"
 )
 
 // Request represents a command request from client to daemon
@@ -88,6 +90,18 @@ type ConnectionStatus struct {
 // ListResponse represents list of active forwards
 type ListResponse struct {
 	Forwards []ForwardInfo `json:"forwards"`
+}
+
+// OpProxyRequest represents a request to proxy an op CLI invocation
+type OpProxyRequest struct {
+	Args []string `json:"args"`
+}
+
+// OpProxyResponse represents the result of a proxied op CLI invocation
+type OpProxyResponse struct {
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	ExitCode int    `json:"exit_code"`
 }
 
 // ParseRequest parses a JSON request

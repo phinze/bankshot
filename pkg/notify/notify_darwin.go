@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"strings"
 )
 
 // New creates a Notifier. If helperPath is empty, notifications are disabled.
@@ -14,6 +15,37 @@ func New(logger *slog.Logger, helperPath string) *Notifier {
 		logger:     logger,
 		helperPath: helperPath,
 	}
+}
+
+// NotifyOpProxy posts a macOS notification for a proxied 1Password CLI request.
+func (n *Notifier) NotifyOpProxy(args []string) {
+	if n.helperPath == "" {
+		return
+	}
+
+	title := "1Password"
+	body := "op"
+	if len(args) > 0 {
+		body = "op " + strings.Join(args, " ")
+	}
+	// Truncate long command lines
+	if len(body) > 80 {
+		body = body[:77] + "..."
+	}
+
+	go func() {
+		cmd := exec.Command(n.helperPath,
+			"--title", title,
+			"--body", body,
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			n.logger.Warn("notification helper failed",
+				"error", err,
+				"output", string(out),
+				"helper", n.helperPath,
+			)
+		}
+	}()
 }
 
 // NotifyForward posts a macOS notification for a newly-forwarded port.

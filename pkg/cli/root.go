@@ -34,6 +34,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newWrapCmd())
 	rootCmd.AddCommand(newMonitorCmd())
+	rootCmd.AddCommand(newOpProxyCmd())
 
 	return rootCmd
 }

@@ -8,11 +8,15 @@ import (
 )
 
 func main() {
-	// Check if called as 'open' or 'xdg-open' for compatibility mode
+	// Check if called via symlink for compatibility mode
 	baseName := filepath.Base(os.Args[0])
 	if (baseName == "open" || baseName == "xdg-open") && len(os.Args) >= 2 {
 		// Compatibility mode: bankshot open <url>
 		os.Args = append([]string{"bankshot", "open"}, os.Args[1:]...)
+	}
+	if baseName == "op" {
+		// 1Password proxy mode: bankshot op-proxy -- <args>
+		os.Args = append([]string{"bankshot", "op-proxy", "--"}, os.Args[1:]...)
 	}
 
 	rootCmd := cli.NewRootCmd()

@@ -31,6 +31,9 @@ type Config struct {
 
 	// Monitor configuration (for bankshot monitor on remote servers)
 	Monitor MonitorConfig `yaml:"monitor,omitempty"`
+
+	// OpProxy configuration (for proxying 1Password CLI requests)
+	OpProxy OpProxyConfig `yaml:"op_proxy,omitempty"`
 }
 
 // MonitorConfig represents the configuration for bankshot monitor
@@ -48,6 +51,15 @@ type PortRange struct {
 	End   int `yaml:"end"`
 }
 
+// OpProxyConfig represents the configuration for proxying 1Password CLI requests
+type OpProxyConfig struct {
+	Enabled            bool     `yaml:"enabled"`
+	OpPath             string   `yaml:"op_path,omitempty"`
+	AllowedVaults      []string `yaml:"allowed_vaults"`
+	ReadOnly           bool     `yaml:"read_only"`
+	AllowedSubcommands []string `yaml:"allowed_subcommands,omitempty"`
+}
+
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
@@ -55,6 +67,11 @@ func DefaultConfig() *Config {
 		Address:    "~/.bankshot.sock",
 		LogLevel:   "info",
 		SSHCommand: "ssh",
+		OpProxy: OpProxyConfig{
+			Enabled:  false,
+			OpPath:   "op",
+			ReadOnly: true,
+		},
 	}
 }
 

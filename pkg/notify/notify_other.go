@@ -12,5 +12,8 @@ func New(logger *slog.Logger, helperPath string) *Notifier {
 	}
 }
 
+// NotifyOpProxy is a no-op on non-darwin platforms.
+func (n *Notifier) NotifyOpProxy(args []string) {}
+
 // NotifyForward is a no-op on non-darwin platforms.
 func (n *Notifier) NotifyForward(remotePort, localPort int, host, processName, processCwd string) {}

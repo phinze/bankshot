@@ -19,6 +19,7 @@ import (
 	"github.com/phinze/bankshot/pkg/forwarder"
 	"github.com/phinze/bankshot/pkg/notify"
 	"github.com/phinze/bankshot/pkg/opener"
+	"github.com/phinze/bankshot/pkg/opproxy"
 	"github.com/phinze/bankshot/pkg/protocol"
 	"github.com/phinze/bankshot/version"
 )
@@ -34,6 +35,7 @@ type Daemon struct {
 	opener      *opener.Opener
 	forwarder   *forwarder.Forwarder
 	notifier    *notify.Notifier
+	opProxy     *opproxy.OpProxy
 	startTime   time.Time
 	systemdMode bool   // Running under systemd
 	pidFile     string // PID file path
@@ -50,6 +52,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		opener:    opener.New(logger),
 		forwarder: forwarder.New(logger, cfg.SSHCommand),
 		notifier:  notify.New(logger, cfg.NotifyCommand),
+		opProxy:   opproxy.New(&cfg.OpProxy, logger),
 		startTime: time.Now(),
 	}
 }
@@ -247,6 +250,8 @@ func (d *Daemon) handleCommand(req *protocol.Request) *protocol.Response {
 		return d.handleUnforwardCommand(req)
 	case protocol.CommandReconcile:
 		return d.handleReconcileCommand(req)
+	case protocol.CommandOpProxy:
+		return d.handleOpProxyCommand(req)
 	default:
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("unknown command type: %s", req.Type))
 	}
@@ -429,6 +434,27 @@ func (d *Daemon) handleUnforwardCommand(req *protocol.Request) *protocol.Respons
 		"message": fmt.Sprintf("Removed forward for %s:%d",
 			host, unforwardReq.RemotePort),
 	})
+	return resp
+}
+
+// handleOpProxyCommand handles the op-proxy command
+func (d *Daemon) handleOpProxyCommand(req *protocol.Request) *protocol.Response {
+	var opReq protocol.OpProxyRequest
+	if err := json.Unmarshal(req.Payload, &opReq); err != nil {
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid op-proxy request format: %w", err))
+	}
+
+	opResp, err := d.opProxy.Execute(opReq)
+	if err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+
+	d.notifier.NotifyOpProxy(opReq.Args)
+
+	resp, err := protocol.NewSuccessResponse(req.ID, opResp)
+	if err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
 	return resp
 }
 

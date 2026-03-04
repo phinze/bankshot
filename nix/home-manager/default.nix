@@ -25,6 +25,13 @@ with lib; let
       pollInterval = cfg.monitor.pollInterval;
       gracePeriod = cfg.monitor.gracePeriod;
     };
+  } // lib.optionalAttrs cfg.opProxy.enabled {
+    op_proxy = {
+      enabled = cfg.opProxy.enabled;
+      op_path = cfg.opProxy.opPath;
+      allowed_vaults = cfg.opProxy.allowedVaults;
+      read_only = cfg.opProxy.readOnly;
+    };
   } // cfg.settings;
   
   configFile = yamlFormat.generate "bankshot-config.yaml" configData;
@@ -74,6 +81,49 @@ in {
         Whether to create an xdg-open symlink pointing to bankshot.
         This allows bankshot to handle browser opening on remote machines.
       '';
+    };
+
+    enableOpProxy = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Whether to create an op symlink pointing to bankshot.
+        This allows bankshot to proxy 1Password CLI requests to the local
+        machine where native app integration (Touch ID) is available.
+      '';
+    };
+
+    opProxy = {
+      enabled = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Enable the op-proxy handler in the daemon";
+      };
+
+      opPath = mkOption {
+        type = types.str;
+        default = "op";
+        description = "Path to the op binary on the local (daemon) machine";
+      };
+
+      allowedVaults = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = ''
+          Vaults that may be accessed via op-proxy. When empty, all vaults
+          are allowed. Set explicitly to restrict access.
+        '';
+      };
+
+      readOnly = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          When true (default), only read-only op subcommands are allowed
+          (item get, item list, read, whoami). Set to false to also allow
+          write operations (item create, item edit, item delete, run, inject).
+        '';
+      };
     };
 
     daemon = {
@@ -184,6 +234,10 @@ in {
       ++ lib.optional cfg.enableXdgOpen (pkgs.runCommand "bankshot-xdg-open" {} ''
         mkdir -p $out/bin
         ln -s ${cfg.package}/bin/bankshot $out/bin/xdg-open
+      '')
+      ++ lib.optional cfg.enableOpProxy (pkgs.runCommand "bankshot-op-proxy" {} ''
+        mkdir -p $out/bin
+        ln -s ${cfg.package}/bin/bankshot $out/bin/op
       '');
 
     # Install and code-sign the notification helper app bundle.
