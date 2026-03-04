@@ -281,6 +281,7 @@ func TestHandlePortEvent_IgnoreProcesses(t *testing.T) {
 				logger:             slog.Default(),
 				ignoreProcesses:    tt.ignoreProcesses,
 				resolveProcessName: stubResolver,
+				resolveProcessCwd:  func(pid int) string { return "" },
 				activeForwards:     make(map[string]ForwardInfo),
 				pendingRemovals:    make(map[string]time.Time),
 			}

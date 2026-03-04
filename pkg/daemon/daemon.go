@@ -393,7 +393,7 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 
 	// Notify on new forwards (not duplicates from reconciliation)
 	if created {
-		d.notifier.NotifyForward(forwardReq.RemotePort, localPort, host)
+		d.notifier.NotifyForward(forwardReq.RemotePort, localPort, host, forwardReq.ProcessName, forwardReq.ProcessCwd)
 	}
 
 	// Return success

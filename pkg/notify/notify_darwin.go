@@ -18,7 +18,7 @@ func New(logger *slog.Logger, helperPath string) *Notifier {
 
 // NotifyForward posts a macOS notification for a newly-forwarded port.
 // It shells out to the helper app in a goroutine so it never blocks the caller.
-func (n *Notifier) NotifyForward(remotePort, localPort int, host string) {
+func (n *Notifier) NotifyForward(remotePort, localPort int, host, processName, processCwd string) {
 	if n.helperPath == "" {
 		n.logger.Debug("Skipping notification, no helper configured")
 		return
@@ -26,6 +26,16 @@ func (n *Notifier) NotifyForward(remotePort, localPort int, host string) {
 
 	title := fmt.Sprintf("Port %d forwarded", remotePort)
 	body := fmt.Sprintf("%s:%d → localhost:%d", host, remotePort, localPort)
+
+	// Add process context if available
+	if processName != "" {
+		context := processName
+		if processCwd != "" {
+			context += " in " + shortPath(processCwd)
+		}
+		body += "\n" + context
+	}
+
 	url := fmt.Sprintf("http://localhost:%d", localPort)
 
 	n.logger.Info("Sending notification",

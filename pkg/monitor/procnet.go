@@ -170,6 +170,16 @@ func ResolveProcessName(pid int) string {
 	return strings.TrimSpace(string(data))
 }
 
+// ResolveProcessCwd reads /proc/<pid>/cwd symlink and returns the working directory.
+// Returns empty string if the process is gone or unreadable.
+func ResolveProcessCwd(pid int) string {
+	cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
+	if err != nil {
+		return ""
+	}
+	return cwd
+}
+
 // GetProcessListeningPorts returns ports for a specific process
 func GetProcessListeningPorts(pid int) ([]Port, error) {
 	var allPorts []Port

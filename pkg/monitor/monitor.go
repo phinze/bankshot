@@ -15,6 +15,7 @@ type PortEvent struct {
 	Protocol    string
 	ProcessName string
 	ProcessCmd  string
+	ProcessCwd  string
 	BindAddr    string
 	Timestamp   time.Time
 }

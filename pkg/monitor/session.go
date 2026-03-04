@@ -23,6 +23,7 @@ type SessionMonitor struct {
 	ignorePorts        map[int]bool
 	ignoreProcesses    []string
 	resolveProcessName func(pid int) string // defaults to ResolveProcessName
+	resolveProcessCwd  func(pid int) string // defaults to ResolveProcessCwd
 	gracePeriod        time.Duration
 	activeForwards     map[string]ForwardInfo // key: "port" (PID not needed)
 	pendingRemovals    map[string]time.Time   // forwards pending removal
@@ -77,6 +78,7 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 		ignorePorts:        ignoreMap,
 		ignoreProcesses:    cfg.IgnoreProcesses,
 		resolveProcessName: ResolveProcessName,
+		resolveProcessCwd:  ResolveProcessCwd,
 		gracePeriod:        cfg.GracePeriod,
 		activeForwards:     make(map[string]ForwardInfo),
 		pendingRemovals:    make(map[string]time.Time),
@@ -133,18 +135,21 @@ func (m *SessionMonitor) handlePortEvent(event PortEvent) {
 		return
 	}
 
-	// Check if the process should be ignored (only when we have a PID and ignore list)
-	if len(m.ignoreProcesses) > 0 && event.PID != 0 {
-		name := event.ProcessName
-		if name == "" {
-			name = m.resolveProcessName(event.PID)
-			event.ProcessName = name
+	// Resolve process info when we have a PID
+	if event.PID != 0 {
+		if event.ProcessName == "" {
+			event.ProcessName = m.resolveProcessName(event.PID)
 		}
-		if m.shouldIgnoreProcess(name) {
+		if event.ProcessCwd == "" {
+			event.ProcessCwd = m.resolveProcessCwd(event.PID)
+		}
+
+		// Check if the process should be ignored
+		if len(m.ignoreProcesses) > 0 && m.shouldIgnoreProcess(event.ProcessName) {
 			m.logger.Info("Ignoring port event from excluded process",
 				"port", event.Port,
 				"pid", event.PID,
-				"process", name)
+				"process", event.ProcessName)
 			return
 		}
 	}
@@ -201,6 +206,8 @@ func (m *SessionMonitor) requestForward(key string, event PortEvent) {
 		LocalPort:      event.Port,
 		Host:           "localhost",
 		ConnectionInfo: m.sessionID, // sessionID is now the hostname for SSH connection matching
+		ProcessName:    event.ProcessName,
+		ProcessCwd:     event.ProcessCwd,
 	}
 
 	payloadBytes, _ := json.Marshal(payload)
