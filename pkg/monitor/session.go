@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/phinze/bankshot/pkg/protocol"
 )
+
+// processMatcher matches a process name by either substring or regexp.
+// Entries wrapped in /slashes/ are compiled as regexps; others use
+// case-insensitive substring matching.
+type processMatcher struct {
+	pattern string         // original pattern string (for logging)
+	re      *regexp.Regexp // non-nil for /regex/ patterns
+	substr  string         // lowercased substring for plain patterns
+}
+
+func (pm processMatcher) matches(name string) bool {
+	if pm.re != nil {
+		return pm.re.MatchString(name)
+	}
+	return strings.Contains(strings.ToLower(name), pm.substr)
+}
 
 // SessionMonitor manages port forwarding for an SSH session
 type SessionMonitor struct {
@@ -21,7 +38,8 @@ type SessionMonitor struct {
 	logger             *slog.Logger
 	portRanges         []PortRange
 	ignorePorts        map[int]bool
-	ignoreProcesses    []string
+	ignoreProcesses    []string          // raw config (for logging)
+	processMatchers    []processMatcher  // compiled matchers
 	resolveProcessName func(pid int) string // defaults to ResolveProcessName
 	resolveProcessCwd  func(pid int) string // defaults to ResolveProcessCwd
 	gracePeriod        time.Duration
@@ -69,6 +87,25 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 		ignoreMap[p] = true
 	}
 
+	// Compile process matchers: /pattern/ entries become regexps,
+	// plain strings use case-insensitive substring matching.
+	matchers := make([]processMatcher, 0, len(cfg.IgnoreProcesses))
+	for _, p := range cfg.IgnoreProcesses {
+		if strings.HasPrefix(p, "/") && strings.HasSuffix(p, "/") && len(p) > 2 {
+			expr := p[1 : len(p)-1]
+			re, err := regexp.Compile("(?i)" + expr)
+			if err != nil {
+				cfg.Logger.Warn("Invalid ignore process regexp, falling back to substring",
+					"pattern", p, "error", err)
+				matchers = append(matchers, processMatcher{pattern: p, substr: strings.ToLower(expr)})
+			} else {
+				matchers = append(matchers, processMatcher{pattern: p, re: re})
+			}
+		} else {
+			matchers = append(matchers, processMatcher{pattern: p, substr: strings.ToLower(p)})
+		}
+	}
+
 	return &SessionMonitor{
 		sessionID:          cfg.SessionID,
 		systemMonitor:      cfg.PortEventSource,
@@ -77,6 +114,7 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 		portRanges:         cfg.PortRanges,
 		ignorePorts:        ignoreMap,
 		ignoreProcesses:    cfg.IgnoreProcesses,
+		processMatchers:    matchers,
 		resolveProcessName: ResolveProcessName,
 		resolveProcessCwd:  ResolveProcessCwd,
 		gracePeriod:        cfg.GracePeriod,
@@ -145,7 +183,7 @@ func (m *SessionMonitor) handlePortEvent(event PortEvent) {
 		}
 
 		// Check if the process should be ignored
-		if len(m.ignoreProcesses) > 0 && m.shouldIgnoreProcess(event.ProcessName) {
+		if len(m.processMatchers) > 0 && m.shouldIgnoreProcess(event.ProcessName) {
 			m.logger.Info("Ignoring port event from excluded process",
 				"port", event.Port,
 				"pid", event.PID,
@@ -378,12 +416,12 @@ func (m *SessionMonitor) shouldForwardPort(port int, bindAddr string) bool {
 	return ShouldForwardPort(port, bindAddr, m.portRanges, m.ignorePorts)
 }
 
-// shouldIgnoreProcess checks if a process name matches any entry in ignoreProcesses
-// using case-insensitive substring matching.
+// shouldIgnoreProcess checks if a process name matches any entry in ignoreProcesses.
+// Entries wrapped in /slashes/ are matched as regexps; others use case-insensitive
+// substring matching.
 func (m *SessionMonitor) shouldIgnoreProcess(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ignore := range m.ignoreProcesses {
-		if strings.Contains(lower, strings.ToLower(ignore)) {
+	for _, pm := range m.processMatchers {
+		if pm.matches(name) {
 			return true
 		}
 	}

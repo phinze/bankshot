@@ -94,7 +94,7 @@ func (d *Monitor) Start(ctx context.Context) error {
 	// Parse monitor config from main config
 	var portRanges []monitor.PortRange // nil = forward all non-privileged ports (>= 1024)
 	ignorePorts := d.config.Monitor.IgnorePorts
-	ignoreProcesses := []string{"sshd", "systemd", "ssh-agent"}
+	ignoreProcesses := []string{"sshd", "systemd", "ssh-agent", "/\\.test$/"}
 	pollInterval := 5 * time.Second // Default to 5s for reasonable CPU usage
 	gracePeriod := 30 * time.Second
 

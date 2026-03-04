@@ -186,7 +186,7 @@ in {
 
       ignoreProcesses = mkOption {
         type = types.listOf types.str;
-        default = ["sshd" "systemd" "ssh-agent"];
+        default = ["sshd" "systemd" "ssh-agent" "/\\.test$/"];
         description = "Processes to ignore for port forwarding (applies to bankshot monitor on remote servers)";
       };
 

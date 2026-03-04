@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"testing"
@@ -8,6 +9,12 @@ import (
 
 	"github.com/phinze/bankshot/pkg/protocol"
 )
+
+// mockPortEventSource is a no-op event source for tests that don't need monitoring
+type mockPortEventSource struct{}
+
+func (m *mockPortEventSource) Start(ctx context.Context) error { return nil }
+func (m *mockPortEventSource) Events() <-chan PortEvent          { return make(chan PortEvent) }
 
 // mockDaemonClient records forward/unforward requests for test assertions
 type mockDaemonClient struct {
@@ -261,6 +268,26 @@ func TestHandlePortEvent_IgnoreProcesses(t *testing.T) {
 			wantForward: true,
 		},
 		{
+			name:            "regexp match with /pattern/",
+			ignoreProcesses: []string{`/\.test$/`},
+			event: PortEvent{
+				Type: PortOpened, PID: 999, Port: 5000,
+				ProcessName: "coordinate.test",
+				BindAddr:    "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: false,
+		},
+		{
+			name:            "regexp does not match non-suffix",
+			ignoreProcesses: []string{`/\.test$/`},
+			event: PortEvent{
+				Type: PortOpened, PID: 999, Port: 5000,
+				ProcessName: "testrunner",
+				BindAddr:    "0.0.0.0", Timestamp: time.Now(),
+			},
+			wantForward: true,
+		},
+		{
 			name:            "event with ProcessName already set skips resolve",
 			ignoreProcesses: []string{"registry"},
 			event: PortEvent{
@@ -275,16 +302,15 @@ func TestHandlePortEvent_IgnoreProcesses(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &mockDaemonClient{}
-			sm := &SessionMonitor{
-				sessionID:          "test",
-				daemonClient:       client,
-				logger:             slog.Default(),
-				ignoreProcesses:    tt.ignoreProcesses,
-				resolveProcessName: stubResolver,
-				resolveProcessCwd:  func(pid int) string { return "" },
-				activeForwards:     make(map[string]ForwardInfo),
-				pendingRemovals:    make(map[string]time.Time),
-			}
+			sm, _ := NewSessionMonitor(SessionConfig{
+				SessionID:       "test",
+				DaemonClient:    client,
+				Logger:          slog.Default(),
+				IgnoreProcesses: tt.ignoreProcesses,
+				PortEventSource: &mockPortEventSource{},
+			})
+			sm.resolveProcessName = stubResolver
+			sm.resolveProcessCwd = func(pid int) string { return "" }
 
 			sm.handlePortEvent(tt.event)
 

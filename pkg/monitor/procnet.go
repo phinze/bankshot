@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -160,10 +161,25 @@ func IsLocalAddr(addr string) bool {
 	return false
 }
 
-// ResolveProcessName reads /proc/<pid>/comm and returns the process name.
-// Returns empty string if the process is gone or unreadable.
+// ResolveProcessName returns the process name for a given PID.
+// It reads /proc/<pid>/cmdline first to get the full (untruncated) argv[0]
+// basename, falling back to /proc/<pid>/comm (which the kernel truncates
+// to 15 characters). Returns empty string if the process is gone or unreadable.
 func ResolveProcessName(pid int) string {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	// Try cmdline first for the full name
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err == nil && len(data) > 0 {
+		// cmdline is NUL-delimited; argv[0] is everything before the first NUL
+		argv0 := string(data)
+		if i := strings.IndexByte(argv0, 0); i >= 0 {
+			argv0 = argv0[:i]
+		}
+		if argv0 != "" {
+			return filepath.Base(argv0)
+		}
+	}
+	// Fall back to comm (truncated to 15 chars)
+	data, err = os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 	if err != nil {
 		return ""
 	}
