@@ -42,6 +42,7 @@ type SessionMonitor struct {
 	processMatchers    []processMatcher  // compiled matchers
 	resolveProcessName func(pid int) string // defaults to ResolveProcessName
 	resolveProcessCwd  func(pid int) string // defaults to ResolveProcessCwd
+	resolveParentPID   func(pid int) int    // defaults to ResolveParentPID
 	gracePeriod        time.Duration
 	activeForwards     map[string]ForwardInfo // key: "port" (PID not needed)
 	pendingRemovals    map[string]time.Time   // forwards pending removal
@@ -117,6 +118,7 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 		processMatchers:    matchers,
 		resolveProcessName: ResolveProcessName,
 		resolveProcessCwd:  ResolveProcessCwd,
+		resolveParentPID:   ResolveParentPID,
 		gracePeriod:        cfg.GracePeriod,
 		activeForwards:     make(map[string]ForwardInfo),
 		pendingRemovals:    make(map[string]time.Time),
@@ -182,13 +184,16 @@ func (m *SessionMonitor) handlePortEvent(event PortEvent) {
 			event.ProcessCwd = m.resolveProcessCwd(event.PID)
 		}
 
-		// Check if the process should be ignored
-		if len(m.processMatchers) > 0 && m.shouldIgnoreProcess(event.ProcessName) {
-			m.logger.Info("Ignoring port event from excluded process",
-				"port", event.Port,
-				"pid", event.PID,
-				"process", event.ProcessName)
-			return
+		// Check if the process or any ancestor should be ignored
+		if len(m.processMatchers) > 0 {
+			if ignored, matchedName := m.shouldIgnoreProcess(event.PID, event.ProcessName); ignored {
+				m.logger.Info("Ignoring port event from excluded process",
+					"port", event.Port,
+					"pid", event.PID,
+					"process", event.ProcessName,
+					"matchedAncestor", matchedName)
+				return
+			}
 		}
 	}
 
@@ -416,16 +421,38 @@ func (m *SessionMonitor) shouldForwardPort(port int, bindAddr string) bool {
 	return ShouldForwardPort(port, bindAddr, m.portRanges, m.ignorePorts)
 }
 
-// shouldIgnoreProcess checks if a process name matches any entry in ignoreProcesses.
-// Entries wrapped in /slashes/ are matched as regexps; others use case-insensitive
-// substring matching.
-func (m *SessionMonitor) shouldIgnoreProcess(name string) bool {
+// shouldIgnoreProcess checks if the process or any of its ancestors match an
+// ignoreProcesses entry. It first checks the given name, then walks the process
+// tree upward via resolveParentPID, resolving each ancestor's name and checking
+// against the matchers. Stops at PID <= 1 or after 16 levels.
+func (m *SessionMonitor) shouldIgnoreProcess(pid int, name string) (bool, string) {
+	// Check the process itself first
 	for _, pm := range m.processMatchers {
 		if pm.matches(name) {
-			return true
+			return true, name
 		}
 	}
-	return false
+
+	// Walk up the process tree
+	currentPID := pid
+	for depth := 0; depth < 16; depth++ {
+		parentPID := m.resolveParentPID(currentPID)
+		if parentPID <= 1 {
+			break
+		}
+		parentName := m.resolveProcessName(parentPID)
+		if parentName == "" {
+			break
+		}
+		for _, pm := range m.processMatchers {
+			if pm.matches(parentName) {
+				return true, parentName
+			}
+		}
+		currentPID = parentPID
+	}
+
+	return false, ""
 }
 
 // cleanup removes all forwards on shutdown

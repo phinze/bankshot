@@ -194,6 +194,134 @@ func TestParseHexAddr(t *testing.T) {
 	}
 }
 
+func TestHandlePortEvent_IgnoreProcesses_AncestorWalk(t *testing.T) {
+	// Process tree:
+	//   PID 1 (init)
+	//     PID 10 (coordinate.test)  <-- ignored
+	//       PID 20 (bash)
+	//         PID 30 (nc)           <-- child of ignored ancestor
+	//   PID 50 (node)               <-- unrelated, not ignored
+	//     PID 60 (python)           <-- child of non-ignored
+	nameMap := map[int]string{
+		10: "coordinate.test",
+		20: "bash",
+		30: "nc",
+		50: "node",
+		60: "python",
+	}
+	parentMap := map[int]int{
+		10: 1,
+		20: 10,
+		30: 20,
+		50: 1,
+		60: 50,
+	}
+
+	tests := []struct {
+		name        string
+		pid         int
+		processName string
+		wantForward bool
+	}{
+		{
+			name:        "directly ignored process",
+			pid:         10,
+			processName: "coordinate.test",
+			wantForward: false,
+		},
+		{
+			name:        "child of ignored ancestor is filtered",
+			pid:         30,
+			processName: "nc",
+			wantForward: false,
+		},
+		{
+			name:        "grandchild of ignored ancestor is filtered",
+			pid:         30,
+			processName: "nc",
+			wantForward: false,
+		},
+		{
+			name:        "unrelated process is forwarded",
+			pid:         50,
+			processName: "node",
+			wantForward: true,
+		},
+		{
+			name:        "child of non-ignored process is forwarded",
+			pid:         60,
+			processName: "python",
+			wantForward: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &mockDaemonClient{}
+			sm, _ := NewSessionMonitor(SessionConfig{
+				SessionID:       "test",
+				DaemonClient:    client,
+				Logger:          slog.Default(),
+				IgnoreProcesses: []string{`/\.test$/`},
+				PortEventSource: &mockPortEventSource{},
+			})
+			sm.resolveProcessName = func(pid int) string { return nameMap[pid] }
+			sm.resolveProcessCwd = func(pid int) string { return "" }
+			sm.resolveParentPID = func(pid int) int { return parentMap[pid] }
+
+			sm.handlePortEvent(PortEvent{
+				Type: PortOpened, PID: tt.pid, Port: 5000,
+				ProcessName: tt.processName,
+				BindAddr:    "0.0.0.0", Timestamp: time.Now(),
+			})
+
+			got := client.forwardCount() > 0
+			if got != tt.wantForward {
+				t.Errorf("forward created = %v, want %v", got, tt.wantForward)
+			}
+		})
+	}
+}
+
+func TestHandlePortEvent_AncestorWalk_DepthLimit(t *testing.T) {
+	// Build a chain deeper than the 16-level safety cap.
+	// PIDs 1000..1020 form a chain, none matching the ignore pattern.
+	// If the walker doesn't stop, it would loop or blow up.
+	nameMap := map[int]string{}
+	parentMap := map[int]int{}
+	for pid := 1000; pid <= 1020; pid++ {
+		nameMap[pid] = "shell"
+		if pid == 1000 {
+			parentMap[pid] = 1 // root of chain
+		} else {
+			parentMap[pid] = pid - 1
+		}
+	}
+
+	client := &mockDaemonClient{}
+	sm, _ := NewSessionMonitor(SessionConfig{
+		SessionID:       "test",
+		DaemonClient:    client,
+		Logger:          slog.Default(),
+		IgnoreProcesses: []string{"nevermatches"},
+		PortEventSource: &mockPortEventSource{},
+	})
+	sm.resolveProcessName = func(pid int) string { return nameMap[pid] }
+	sm.resolveProcessCwd = func(pid int) string { return "" }
+	sm.resolveParentPID = func(pid int) int { return parentMap[pid] }
+
+	sm.handlePortEvent(PortEvent{
+		Type: PortOpened, PID: 1020, Port: 5000,
+		ProcessName: "shell",
+		BindAddr:    "0.0.0.0", Timestamp: time.Now(),
+	})
+
+	// Should forward since nothing matched (tree walk stopped without matching)
+	if client.forwardCount() != 1 {
+		t.Errorf("expected forward to be created for deep chain, got %d forwards", client.forwardCount())
+	}
+}
+
 func TestHandlePortEvent_IgnoreProcesses(t *testing.T) {
 	// Stub process name resolver so tests don't touch /proc
 	stubResolver := func(pid int) string {
@@ -311,6 +439,7 @@ func TestHandlePortEvent_IgnoreProcesses(t *testing.T) {
 			})
 			sm.resolveProcessName = stubResolver
 			sm.resolveProcessCwd = func(pid int) string { return "" }
+			sm.resolveParentPID = func(pid int) int { return 0 }
 
 			sm.handlePortEvent(tt.event)
 
