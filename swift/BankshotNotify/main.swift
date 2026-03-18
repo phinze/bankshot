@@ -45,6 +45,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         let center = UNUserNotificationCenter.current()
         center.delegate = self
 
+        // If launched without a title, we were relaunched by macOS to handle
+        // a notification click. Wait for didReceive, but bail if it doesn't
+        // come within a few seconds (e.g. notification was dismissed).
+        guard !args.title.isEmpty else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                NSApplication.shared.terminate(nil)
+            }
+            return
+        }
+
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error = error {
                 fputs("authorization error: \(error.localizedDescription)\n", stderr)
@@ -107,17 +117,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             NSWorkspace.shared.open(url)
         }
         completionHandler()
+        // Exit after handling the click
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSApplication.shared.terminate(nil)
+        }
     }
 }
 
 // MARK: - Main
 
 let args = parseArgs()
-
-guard !args.title.isEmpty else {
-    fputs("usage: bankshot-notify --title TITLE [--body BODY] [--url URL]\n", stderr)
-    exit(1)
-}
 
 let app = NSApplication.shared
 let delegate = AppDelegate(args: args)
