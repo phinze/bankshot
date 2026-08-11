@@ -3,9 +3,9 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/google/uuid"
+	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/protocol"
 	"github.com/spf13/cobra"
 )
@@ -27,13 +27,9 @@ func newUnforwardCmd() *cobra.Command {
 				return fmt.Errorf("invalid port: %s", args[0])
 			}
 
-			connectionInfo := unforwardConnection
-			if connectionInfo == "" {
-				hostname, err := os.Hostname()
-				if err != nil {
-					return fmt.Errorf("failed to get hostname: %w", err)
-				}
-				connectionInfo = hostname
+			connectionInfo, err := config.ResolveConnectionInfo(unforwardConnection)
+			if err != nil {
+				return err
 			}
 
 			host := unforwardHost

@@ -194,6 +194,30 @@ log_level: info                 # debug, info, warn, error
 
 - `BANKSHOT_DEBUG`: Enable debug logging
 - `BANKSHOT_SOCKET`: Override socket path
+- `BANKSHOT_CONNECTION`: Override the SSH connection identifier used for port forwarding. An explicit `--connection` flag takes precedence.
+
+To send the original SSH host alias to Bankshot automatically, configure the
+SSH client on your local machine:
+
+```sshconfig
+Host *.coder
+    SetEnv BANKSHOT_CONNECTION=%n
+```
+
+The remote SSH server must accept the variable with
+`AcceptEnv BANKSHOT_CONNECTION`. Verify it with:
+
+```bash
+ssh remote-2.coder 'printenv BANKSHOT_CONNECTION'
+```
+
+A persistent systemd monitor does not inherit an interactive SSH session's
+environment. Configure it separately with a user service override:
+
+```ini
+[Service]
+Environment=BANKSHOT_CONNECTION=remote-2.coder
+```
 
 ## Contributing
 

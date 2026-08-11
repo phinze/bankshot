@@ -23,6 +23,48 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+func TestResolveConnectionInfo(t *testing.T) {
+	t.Run("explicit value takes precedence", func(t *testing.T) {
+		t.Setenv(connectionEnv, "from-environment")
+
+		got, err := ResolveConnectionInfo("from-flag")
+		if err != nil {
+			t.Fatalf("ResolveConnectionInfo() error = %v", err)
+		}
+		if got != "from-flag" {
+			t.Errorf("ResolveConnectionInfo() = %q, want %q", got, "from-flag")
+		}
+	})
+
+	t.Run("environment value is used", func(t *testing.T) {
+		t.Setenv(connectionEnv, "remote-2.coder")
+
+		got, err := ResolveConnectionInfo("")
+		if err != nil {
+			t.Fatalf("ResolveConnectionInfo() error = %v", err)
+		}
+		if got != "remote-2.coder" {
+			t.Errorf("ResolveConnectionInfo() = %q, want %q", got, "remote-2.coder")
+		}
+	})
+
+	t.Run("empty environment falls back to hostname", func(t *testing.T) {
+		t.Setenv(connectionEnv, "")
+
+		want, err := os.Hostname()
+		if err != nil {
+			t.Fatalf("os.Hostname() error = %v", err)
+		}
+		got, err := ResolveConnectionInfo("")
+		if err != nil {
+			t.Fatalf("ResolveConnectionInfo() error = %v", err)
+		}
+		if got != want {
+			t.Errorf("ResolveConnectionInfo() = %q, want hostname %q", got, want)
+		}
+	})
+}
+
 func TestLoad(t *testing.T) {
 	tests := []struct {
 		name    string

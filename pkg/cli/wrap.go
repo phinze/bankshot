@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/monitor"
 	"github.com/phinze/bankshot/pkg/process"
 	"github.com/phinze/bankshot/pkg/protocol"
@@ -42,13 +43,9 @@ Examples:
 				fmt.Printf("Starting wrapped process: %s\n", strings.Join(args, " "))
 			}
 
-			connectionInfo := wrapConnection
-			if connectionInfo == "" {
-				hostname, err := os.Hostname()
-				if err != nil {
-					return fmt.Errorf("failed to get hostname: %w", err)
-				}
-				connectionInfo = hostname
+			connectionInfo, err := config.ResolveConnectionInfo(wrapConnection)
+			if err != nil {
+				return err
 			}
 
 			execPath, err := os.Executable()

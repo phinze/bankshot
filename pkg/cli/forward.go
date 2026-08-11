@@ -3,9 +3,9 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/google/uuid"
+	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/protocol"
 	"github.com/spf13/cobra"
 )
@@ -36,13 +36,9 @@ If local-port is not specified, it defaults to the same as remote-port.`,
 				localPort = remotePort
 			}
 
-			connectionInfo := forwardConnection
-			if connectionInfo == "" {
-				hostname, err := os.Hostname()
-				if err != nil {
-					return fmt.Errorf("failed to get hostname: %w", err)
-				}
-				connectionInfo = hostname
+			connectionInfo, err := config.ResolveConnectionInfo(forwardConnection)
+			if err != nil {
+				return err
 			}
 
 			host := forwardHost

@@ -9,6 +9,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const connectionEnv = "BANKSHOT_CONNECTION"
+
+// ResolveConnectionInfo returns the SSH connection identifier to use for
+// forwarding. An explicit command-line value takes precedence over the
+// environment, with the machine hostname retained as the default.
+func ResolveConnectionInfo(explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+
+	if connectionInfo := os.Getenv(connectionEnv); connectionInfo != "" {
+		return connectionInfo, nil
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", fmt.Errorf("failed to get hostname: %w", err)
+	}
+	return hostname, nil
+}
+
 // Config represents the daemon configuration
 type Config struct {
 	// Network type: "unix" or "tcp"

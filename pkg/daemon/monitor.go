@@ -84,12 +84,11 @@ func (d *Monitor) Start(ctx context.Context) error {
 		logger:     d.logger,
 	}
 
-	// Generate session ID based on hostname (for SSH connection matching)
-	hostname, err := os.Hostname()
+	// Resolve the SSH connection identifier used for forward matching.
+	sessionID, err := config.ResolveConnectionInfo("")
 	if err != nil {
-		return fmt.Errorf("failed to get hostname: %w", err)
+		return err
 	}
-	sessionID := hostname
 
 	// Parse monitor config from main config
 	var portRanges []monitor.PortRange // nil = forward all non-privileged ports (>= 1024)
@@ -337,12 +336,11 @@ func (d *Monitor) Reconcile() error {
 		logger:     d.logger,
 	}
 
-	// Get hostname for connection matching
-	hostname, err := os.Hostname()
+	// Resolve the SSH connection identifier used for forward matching.
+	sessionID, err := config.ResolveConnectionInfo("")
 	if err != nil {
-		return fmt.Errorf("failed to get hostname: %w", err)
+		return err
 	}
-	sessionID := hostname
 
 	// Query daemon for existing forwards
 	listReq := &protocol.Request{
