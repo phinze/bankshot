@@ -303,7 +303,7 @@ in {
     );
 
     # Launchd agent for daemon (macOS)
-    launchd.agents.bankshot = mkIf (cfg.daemon.enable && pkgs.stdenv.isDarwin) {
+    launchd.agents.bankshot = mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isDarwin) {
       enable = true;
       config = {
         ProgramArguments = [
@@ -318,7 +318,7 @@ in {
     };
 
     # Systemd user service for monitor (Linux remote servers)
-    systemd.user.services.bankshot-monitor = mkIf (cfg.daemon.enable && pkgs.stdenv.isLinux) {
+    systemd.user.services.bankshot-monitor = mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isLinux) {
       Unit = {
         Description = "Bankshot monitor - automatic port forwarding";
         Documentation = "https://github.com/phinze/bankshot";

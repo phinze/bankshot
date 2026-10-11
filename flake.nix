@@ -75,7 +75,7 @@
           };
         };
         default = bankshot;
-      } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
+      } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
         bankshot-notify = pkgs.swiftPackages.stdenv.mkDerivation {
           pname = "bankshot-notify";
           version = "1.0";
