@@ -75,3 +75,13 @@ func parseVaultFromURI(uri string) string {
 	}
 	return ""
 }
+
+// namesAccount reports whether args choose a 1Password account themselves.
+func namesAccount(args []string) bool {
+	for _, arg := range args {
+		if arg == "--account" || strings.HasPrefix(arg, "--account=") {
+			return true
+		}
+	}
+	return false
+}

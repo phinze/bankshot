@@ -277,3 +277,31 @@ func TestExecute_PolicyRejection(t *testing.T) {
 		t.Fatal("expected error for disabled proxy")
 	}
 }
+
+func TestAccountPin(t *testing.T) {
+	fakeOp := filepath.Join(t.TempDir(), "op")
+	if err := os.WriteFile(fakeOp, []byte("#!/bin/sh\nprintf %s \"$OP_ACCOUNT\"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	op := newTestOpProxy(&config.OpProxyConfig{
+		Enabled:       true,
+		OpPath:        fakeOp,
+		ReadOnly:      true,
+		AllowedVaults: []string{"CLI"},
+		Account:       "phinze.1password.com",
+	})
+
+	resp, err := op.Execute(protocol.OpProxyRequest{Args: []string{"read", "op://CLI/thing/password"}})
+	if err != nil || resp.Stdout != "phinze.1password.com" {
+		t.Errorf("op ran with OP_ACCOUNT %q, %v; want the pinned account", resp.Stdout, err)
+	}
+
+	for _, args := range [][]string{
+		{"read", "--account", "team-miren", "op://CLI/thing/password"},
+		{"read", "--account=team-miren", "op://CLI/thing/password"},
+	} {
+		if err := op.Check(protocol.OpProxyRequest{Args: args}); err == nil {
+			t.Errorf("Check(%v) allowed choosing another account", args)
+		}
+	}
+}

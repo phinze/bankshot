@@ -123,23 +123,28 @@ func formatForwardRollup(connectionInfo string, events []ForwardEvent) (title, b
 	return title, body
 }
 
-// NotifyOpProxy posts a notification for a proxied 1Password CLI request.
-func (n *Notifier) NotifyOpProxy(args []string) {
+// NotifyOpProxy posts a notification for a proxied 1Password CLI request,
+// naming who asked. The daemon posts it before running op, so it lands next
+// to the 1Password prompt it explains.
+func (n *Notifier) NotifyOpProxy(args []string, origin string) {
 	if n.helperPath == "" {
 		return
 	}
 
-	title := "1Password"
-	body := "op"
+	cmdline := "op"
 	if len(args) > 0 {
-		body = "op " + strings.Join(args, " ")
+		cmdline = "op " + strings.Join(args, " ")
 	}
 	// Truncate long command lines
-	if len(body) > 80 {
-		body = body[:77] + "..."
+	if len(cmdline) > 80 {
+		cmdline = cmdline[:77] + "..."
 	}
 
-	n.send("--title", title, "--body", body)
+	body := cmdline
+	if origin != "" {
+		body = origin + "\n" + cmdline
+	}
+	n.send("--title", "1Password request", "--body", body)
 }
 
 // NotifyForwardBusy posts a notification that a forward couldn't take its

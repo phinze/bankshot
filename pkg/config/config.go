@@ -110,6 +110,10 @@ type OpProxyConfig struct {
 	AllowedVaults      []string `yaml:"allowed_vaults"`
 	ReadOnly           bool     `yaml:"read_only"`
 	AllowedSubcommands []string `yaml:"allowed_subcommands,omitempty"`
+	// Account pins op to one 1Password account (shorthand, sign-in address,
+	// or ID), passed as OP_ACCOUNT. Requests may not name an account
+	// themselves when it's set.
+	Account string `yaml:"account,omitempty"`
 }
 
 // DefaultConfig returns the default configuration

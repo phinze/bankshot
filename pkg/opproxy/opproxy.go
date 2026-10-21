@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -42,14 +43,21 @@ func New(cfg *config.OpProxyConfig, logger *slog.Logger) *OpProxy {
 	}
 }
 
+// Check reports whether policy allows the request, without running it.
+func (o *OpProxy) Check(req protocol.OpProxyRequest) error {
+	if o.config.Account != "" && namesAccount(req.Args) {
+		return fmt.Errorf("op-proxy is pinned to one account; drop --account")
+	}
+	return o.checkPolicy(parseSubcommand(req.Args), parseVault(req.Args))
+}
+
 // Execute validates the request against policy and runs the op CLI command.
 func (o *OpProxy) Execute(req protocol.OpProxyRequest) (*protocol.OpProxyResponse, error) {
-	subcommand := parseSubcommand(req.Args)
-	vault := parseVault(req.Args)
-
-	if err := o.checkPolicy(subcommand, vault); err != nil {
+	if err := o.Check(req); err != nil {
 		return nil, err
 	}
+	subcommand := parseSubcommand(req.Args)
+	vault := parseVault(req.Args)
 
 	o.logger.Info("Executing op-proxy request",
 		"subcommand", subcommand,
@@ -63,6 +71,9 @@ func (o *OpProxy) Execute(req protocol.OpProxyRequest) (*protocol.OpProxyRespons
 	}
 
 	cmd := exec.Command(opPath, req.Args...)
+	if o.config.Account != "" {
+		cmd.Env = append(os.Environ(), "OP_ACCOUNT="+o.config.Account)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -32,6 +32,8 @@ with lib; let
       op_path = cfg.opProxy.opPath;
       allowed_vaults = cfg.opProxy.allowedVaults;
       read_only = cfg.opProxy.readOnly;
+    } // lib.optionalAttrs (cfg.opProxy.account != null) {
+      account = cfg.opProxy.account;
     };
   } // cfg.settings;
   
@@ -113,6 +115,17 @@ in {
         description = ''
           Vaults that may be accessed via op-proxy. When empty, all vaults
           are allowed. Set explicitly to restrict access.
+        '';
+      };
+
+      account = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "my.1password.com";
+        description = ''
+          1Password account op runs against (shorthand, sign-in address, or
+          ID), passed as OP_ACCOUNT. Needed when the local machine is signed
+          in to more than one account; requests can't pick another.
         '';
       };
 

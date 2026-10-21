@@ -720,12 +720,23 @@ func (d *Daemon) handleOpProxyCommand(req *protocol.Request) *protocol.Response 
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid op-proxy request format: %w", err))
 	}
 
+	if err := d.opProxy.Check(opReq); err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+
+	// Say who's asking before op runs, so the toast arrives alongside any
+	// 1Password prompt rather than after it.
+	var origin string
+	if req.Origin != nil {
+		origin = req.Origin.String()
+		d.logger.Info("Running op for remote caller", "args", opReq.Args, "origin", origin)
+	}
+	d.notifier.NotifyOpProxy(opReq.Args, origin)
+
 	opResp, err := d.opProxy.Execute(opReq)
 	if err != nil {
 		return protocol.NewErrorResponse(req.ID, err)
 	}
-
-	d.notifier.NotifyOpProxy(opReq.Args)
 
 	resp, err := protocol.NewSuccessResponse(req.ID, opResp)
 	if err != nil {
