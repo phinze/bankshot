@@ -93,7 +93,11 @@ in {
         description = "Bankshot monitor - automatic port forwarding";
         documentation = ["https://github.com/phinze/bankshot"];
         wantedBy = ["multi-user.target"];
-        after = ["network.target"];
+        # Tailnet forwarding asks tailscaled for this host's address and for
+        # who each caller is. The monitor retries until the tailnet is up, so
+        # this ordering only saves it a few failed attempts at boot.
+        after = ["network.target"] ++ optional config.services.tailscale.enable "tailscaled.service";
+        path = optional config.services.tailscale.enable config.services.tailscale.package;
 
         environment = optionalAttrs (cfg.monitor.configFile != null) {
           BANKSHOT_CONFIG = "${cfg.monitor.configFile}";
