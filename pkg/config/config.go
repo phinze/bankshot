@@ -38,6 +38,19 @@ type Config struct {
 
 	// Tailnet configures forwarding over Tailscale instead of ssh.
 	Tailnet TailnetConfig `yaml:"tailnet,omitempty"`
+
+	// SSHAgent configures relaying ssh-agent requests from tailnet monitors
+	// to an agent on this machine.
+	SSHAgent SSHAgentConfig `yaml:"ssh_agent,omitempty"`
+}
+
+// SSHAgentConfig lets the daemon relay a remote host's ssh-agent requests to
+// a local agent: listing keys and signing only, never adding, removing, or
+// locking.
+type SSHAgentConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Socket is the local agent, e.g. 1Password's agent.sock.
+	Socket string `yaml:"socket,omitempty"`
 }
 
 // TailnetConfig configures the tailnet transport. On the daemon it opens a
@@ -66,6 +79,9 @@ type TailnetConfig struct {
 	// CLI uses it instead of Address when tailnet is enabled. Default
 	// ~/.bankshot.sock.
 	LocalSocket string `yaml:"local_socket,omitempty"`
+	// AgentSocket, when set, is where the monitor serves an ssh agent backed
+	// by the daemon's (see SSHAgentConfig). Unset, there's none.
+	AgentSocket string `yaml:"agent_socket,omitempty"`
 }
 
 // LeaseDuration parses Lease, falling back to the default.

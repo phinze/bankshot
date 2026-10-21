@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -173,6 +174,9 @@ func (d *Monitor) Start(ctx context.Context) error {
 		}
 		go d.serveRelay(monitorCtx)
 		go d.serveLocal(monitorCtx, daemonClient)
+		if d.config.Tailnet.AgentSocket != "" {
+			go d.serveAgent(monitorCtx, daemonClient)
+		}
 		go d.heartbeatLoop(monitorCtx)
 	} else {
 		// Start socket connectivity monitor for sleep/wake recovery
@@ -282,6 +286,38 @@ type localDaemonClient struct {
 	network string
 	address string
 	logger  *slog.Logger
+}
+
+// Open sends req and, if the daemon accepts it, returns the connection for
+// the stream that follows, with the reader to keep using on it.
+func (c *localDaemonClient) Open(req *protocol.Request) (net.Conn, *bufio.Reader, error) {
+	conn, err := net.DialTimeout(c.network, c.address, daemonDialTimeout)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(daemonRequestTimeout))
+	reqData, _ := json.Marshal(req)
+	if _, err := conn.Write(append(reqData, '\n')); err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadBytes('\n')
+	if err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	resp, err := protocol.ParseResponse(line)
+	if err != nil {
+		conn.Close()
+		return nil, nil, err
+	}
+	if !resp.Success {
+		conn.Close()
+		return nil, nil, fmt.Errorf("daemon refused: %s", resp.Error)
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return conn, reader, nil
 }
 
 func (c *localDaemonClient) SendRequest(req *protocol.Request) (*protocol.Response, error) {

@@ -41,6 +41,7 @@ type Daemon struct {
 	tailnet     *forwarder.TailnetForwarder // nil unless tailnet forwarding is enabled
 	gate        *tailnet.Gate
 	verify      func(ctx context.Context, relayAddr, id string) error // tailnet.Verify; swapped in tests
+	agentToasts agentToasts
 	busyMu      sync.Mutex
 	busy        map[string]bool // "node:port" forwards already reported busy
 	notifier    *notify.Notifier
@@ -306,6 +307,16 @@ func (d *Daemon) handleConnection(conn net.Conn, p *peer) {
 		// Send error response
 		resp := protocol.NewErrorResponse("", fmt.Errorf("invalid request format"))
 		d.sendResponse(conn, resp)
+		return
+	}
+
+	// An agent request turns this connection into an agent stream.
+	if req.Type == protocol.CommandAgent {
+		if p == nil {
+			d.sendResponse(conn, protocol.NewErrorResponse(req.ID, fmt.Errorf("agent is only available over the tailnet")))
+			return
+		}
+		d.serveAgent(conn, reader, req, p)
 		return
 	}
 

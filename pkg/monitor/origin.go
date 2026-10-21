@@ -35,6 +35,7 @@ func DescribeOrigin(pid int) *protocol.Origin {
 	}
 	o.Chain = chain
 	o.Cwd = ResolveProcessCwd(pid)
+	o.Command = processCommand(pid)
 	env := processEnv(pid)
 	o.Rig = env["RIG_ID"]
 	if s := env["CLAUDE_CODE_SESSION_ID"]; s != "" {
@@ -62,6 +63,20 @@ func cleanProcessName(name string) string {
 		}
 	}
 	return name
+}
+
+// processCommand reads pid's command line from /proc, shortened for a
+// caption.
+func processCommand(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return ""
+	}
+	cmd := strings.TrimSpace(strings.ReplaceAll(string(data), "\x00", " "))
+	if len(cmd) > 100 {
+		cmd = cmd[:97] + "..."
+	}
+	return cmd
 }
 
 // processEnv reads pid's environment from /proc.

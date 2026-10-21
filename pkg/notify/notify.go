@@ -147,6 +147,19 @@ func (n *Notifier) NotifyOpProxy(args []string, origin string) {
 	n.send("--title", "1Password request", "--body", body)
 }
 
+// NotifyAgent posts a notification that a remote caller is about to use the
+// ssh agent, naming it and its command line.
+func (n *Notifier) NotifyAgent(origin, command string) {
+	if n.helperPath == "" {
+		return
+	}
+	body := origin
+	if command != "" {
+		body = origin + "\n" + command
+	}
+	n.send("--title", "ssh agent request", "--body", body)
+}
+
 // NotifyForwardBusy posts a notification that a forward couldn't take its
 // local port, so the user knows why localhost:PORT isn't the remote service.
 func (n *Notifier) NotifyForwardBusy(connectionInfo string, remotePort int, err error) {

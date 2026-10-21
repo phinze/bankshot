@@ -29,6 +29,9 @@ const (
 	CommandReconcile CommandType = "reconcile"
 	// CommandOpProxy proxies 1Password CLI requests to the local machine
 	CommandOpProxy CommandType = "op-proxy"
+	// CommandAgent turns the connection into an ssh-agent stream to the
+	// daemon's local agent, after a response. Tailnet peers only.
+	CommandAgent CommandType = "agent"
 	// CommandSync declares the full set of ports a monitor wants forwarded
 	// over the tailnet. The daemon converges to it, and the request renews
 	// the monitor's lease: a host that stops syncing loses its forwards.
@@ -55,6 +58,7 @@ type Origin struct {
 	Cwd     string   `json:"cwd,omitempty"`     // caller's working directory
 	Rig     string   `json:"rig,omitempty"`     // RIG_ID from the caller's environment
 	Session string   `json:"session,omitempty"` // Claude Code session id, shortened
+	Command string   `json:"command,omitempty"` // caller's command line, shortened
 }
 
 // String renders the origin as one caption line, e.g.

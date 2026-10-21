@@ -45,7 +45,7 @@
 
           src = builtins.path { path = ./.; name = "bankshot-source"; };
 
-          vendorHash = "sha256-jQjQ9JAlhoZdXFmr/XOJkEoOZZDjYUfHJBdZSRfz+4k=";
+          vendorHash = "sha256-WD3fsT299ieODrbZAp2z4RTgDzu/MGET0fWI70ggtKg=";
 
           # Make ssh available for tests
           nativeBuildInputs = [pkgs.openssh];

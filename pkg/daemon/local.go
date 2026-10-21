@@ -14,6 +14,7 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/phinze/bankshot/pkg/monitor"
 	"github.com/phinze/bankshot/pkg/protocol"
+	"github.com/phinze/bankshot/pkg/tailnet"
 )
 
 // inFlight is the set of requests the monitor is passing to the daemon right
@@ -48,14 +49,23 @@ func (f *inFlight) has(id string) bool {
 // passes its requests to the daemon over the tailnet. Only the monitor's own
 // user gets in: the socket is 0600 and each peer's uid is checked.
 func (d *Monitor) serveLocal(ctx context.Context, client *localDaemonClient) {
-	path, err := homedir.Expand(d.config.Tailnet.LocalSocket)
+	d.servePrivate(ctx, d.config.Tailnet.LocalSocket, "local bankshot commands", func(conn net.Conn, pid int) {
+		d.handleLocal(conn, pid, client)
+	})
+}
+
+// servePrivate listens on a unix socket at path that only this user can
+// reach, 0600 and with each peer's uid checked, and hands each connection
+// with its peer's pid to handle until ctx is done.
+func (d *Monitor) servePrivate(ctx context.Context, path, what string, handle func(conn net.Conn, pid int)) {
+	path, err := homedir.Expand(path)
 	if err != nil {
-		d.logger.Error("Bad local socket path", "path", d.config.Tailnet.LocalSocket, "error", err)
+		d.logger.Error("Bad socket path", "for", what, "path", path, "error", err)
 		return
 	}
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
-			d.logger.Error("Local socket path exists and isn't a socket; not replacing it", "path", path)
+			d.logger.Error("Socket path exists and isn't a socket; not replacing it", "for", what, "path", path)
 			return
 		}
 		_ = os.Remove(path)
@@ -64,32 +74,56 @@ func (d *Monitor) serveLocal(ctx context.Context, client *localDaemonClient) {
 	ln, err := net.Listen("unix", path)
 	syscall.Umask(oldUmask)
 	if err != nil {
-		d.logger.Error("Failed to listen on local socket", "path", path, "error", err)
+		d.logger.Error("Failed to listen", "for", what, "path", path, "error", err)
 		return
 	}
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
 	}()
-	d.logger.Info("Listening for local bankshot commands", "path", path)
+	d.logger.Info("Listening for "+what, "path", path)
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		go d.handleLocal(conn, client)
+		go func() {
+			defer conn.Close()
+			pid, uid, err := peerCred(conn.(*net.UnixConn))
+			if err != nil || uid != os.Getuid() {
+				d.logger.Warn("Rejected local connection", "for", what, "pid", pid, "uid", uid, "error", err)
+				return
+			}
+			handle(conn, pid)
+		}()
 	}
 }
 
-func (d *Monitor) handleLocal(conn net.Conn, client *localDaemonClient) {
-	defer conn.Close()
+// serveAgent serves an ssh agent on the configured socket, backed by the
+// daemon's: each connection becomes an agent stream over the tailnet, held in
+// flight for the relay to vouch for and attributed to its caller.
+func (d *Monitor) serveAgent(ctx context.Context, client *localDaemonClient) {
+	d.servePrivate(ctx, d.config.Tailnet.AgentSocket, "ssh agent clients", func(conn net.Conn, pid int) {
+		req := &protocol.Request{
+			ID:     uuid.New().String(),
+			Type:   protocol.CommandAgent,
+			Origin: monitor.DescribeOrigin(pid),
+		}
+		d.inFlight.add(req.ID)
+		defer d.inFlight.remove(req.ID)
 
-	pid, uid, err := peerCred(conn.(*net.UnixConn))
-	if err != nil || uid != os.Getuid() {
-		d.logger.Warn("Rejected local connection", "pid", pid, "uid", uid, "error", err)
-		return
-	}
+		upstream, reader, err := client.Open(req)
+		if err != nil {
+			d.logger.Warn("Agent unavailable", "origin", req.Origin.String(), "error", err)
+			return
+		}
+		defer upstream.Close()
+		tailnet.Splice(conn, conn, upstream, reader)
+	})
+}
+
+func (d *Monitor) handleLocal(conn net.Conn, pid int, client *localDaemonClient) {
 
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
 	if err != nil {
