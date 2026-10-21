@@ -24,6 +24,7 @@ type Monitor struct {
 	sessionMonitor  *monitor.SessionMonitor
 	config          *config.Config
 	socketReachable bool
+	inFlight        inFlight // local requests passed to the daemon, for the relay to vouch for
 }
 
 // NewMonitor creates a new monitor instance
@@ -171,6 +172,7 @@ func (d *Monitor) Start(ctx context.Context) error {
 			d.logger.Warn("Failed to seed already-listening ports", "error", err)
 		}
 		go d.serveRelay(monitorCtx)
+		go d.serveLocal(monitorCtx, daemonClient)
 		go d.heartbeatLoop(monitorCtx)
 	} else {
 		// Start socket connectivity monitor for sleep/wake recovery
@@ -224,6 +226,7 @@ func (d *Monitor) serveRelay(ctx context.Context) {
 		Gate:       tailnet.NewGate(d.config.Tailnet.Allow, tailnet.Whois, false),
 		Logger:     d.logger,
 		Forwarding: d.sessionMonitor.Forwarding,
+		Vouches:    d.inFlight.has,
 	}
 	relay.Serve(ln)
 }

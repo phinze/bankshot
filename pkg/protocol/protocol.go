@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // CommandType represents the type of command
@@ -39,6 +40,46 @@ type Request struct {
 	ID      string          `json:"id"`      // Unique request ID
 	Type    CommandType     `json:"type"`    // Command type
 	Payload json.RawMessage `json:"payload"` // Command-specific payload
+	// Origin describes who on the remote host made the request. A monitor
+	// fills it in when it passes a local caller's request over the tailnet.
+	Origin *Origin `json:"origin,omitempty"`
+}
+
+// Origin attributes a request to a process on the remote host, so the user
+// can tell what asked when, say, a 1Password prompt appears.
+type Origin struct {
+	// Node is the remote host. The daemon sets it from tailscale whois and
+	// ignores whatever arrived on the wire.
+	Node    string   `json:"node,omitempty"`
+	Chain   []string `json:"chain,omitempty"`   // process names, outermost first, caller last
+	Cwd     string   `json:"cwd,omitempty"`     // caller's working directory
+	Rig     string   `json:"rig,omitempty"`     // RIG_ID from the caller's environment
+	Session string   `json:"session,omitempty"` // Claude Code session id, shortened
+}
+
+// String renders the origin as one caption line, e.g.
+// "foxtrotbase · rig hopwatch · claude › bash › op".
+func (o *Origin) String() string {
+	if o == nil {
+		return "unknown caller"
+	}
+	var parts []string
+	if o.Node != "" {
+		parts = append(parts, o.Node)
+	}
+	if o.Rig != "" {
+		parts = append(parts, "rig "+o.Rig)
+	}
+	if len(o.Chain) > 0 {
+		parts = append(parts, strings.Join(o.Chain, " › "))
+	}
+	if o.Session != "" {
+		parts = append(parts, "session "+o.Session)
+	}
+	if len(parts) == 0 {
+		return "unknown caller"
+	}
+	return strings.Join(parts, " · ")
 }
 
 // Response represents a response from daemon to client
@@ -160,7 +201,12 @@ type SyncResponse struct {
 // RelayRequest is the first line the daemon sends on a tailnet relay
 // connection, naming the port on the monitor's host to reach.
 type RelayRequest struct {
-	Port int `json:"port"`
+	Port int `json:"port,omitempty"`
+	// Verify, instead of a port, asks whether the monitor itself sent the
+	// request with this ID. The daemon checks before acting on open or
+	// op-proxy, since anything on the remote host can reach its tailnet
+	// listener but only the monitor answers on the relay.
+	Verify string `json:"verify,omitempty"`
 }
 
 // RelayResponse is the monitor relay's one-line answer to a RelayRequest.

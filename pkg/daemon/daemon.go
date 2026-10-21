@@ -40,6 +40,7 @@ type Daemon struct {
 	ssh         *forwarder.SSHForwarder     // also d.forwarder; kept concrete for startup discovery
 	tailnet     *forwarder.TailnetForwarder // nil unless tailnet forwarding is enabled
 	gate        *tailnet.Gate
+	verify      func(ctx context.Context, relayAddr, id string) error // tailnet.Verify; swapped in tests
 	busyMu      sync.Mutex
 	busy        map[string]bool // "node:port" forwards already reported busy
 	notifier    *notify.Notifier
@@ -65,6 +66,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		opProxy:   opproxy.New(&cfg.OpProxy, logger),
 		startTime: time.Now(),
 		busy:      make(map[string]bool),
+		verify:    tailnet.Verify,
 	}
 	if cfg.Tailnet.Enabled {
 		d.tailnet = forwarder.NewTailnet(logger, cfg.Tailnet.RelayPort, cfg.Tailnet.LeaseDuration())
@@ -322,15 +324,20 @@ func (d *Daemon) handleConnection(conn net.Conn, p *peer) {
 	d.logger.Debug("Connection closed", "remote", remoteAddr)
 }
 
-// handleCommand processes a command and returns a response. Tailnet peers
-// get the forwarding commands only, for now; open and op-proxy act on this
-// machine as the user and stay on the local socket until they get their own
-// look.
+// handleCommand processes a command and returns a response. Open and
+// op-proxy act on this machine as the user, so a tailnet peer's request must
+// come through its monitor, which the peer's relay vouches for; anything else
+// on that host can reach this listener but can't get the relay to vouch.
 func (d *Daemon) handleCommand(req *protocol.Request, p *peer) *protocol.Response {
 	if p != nil {
 		switch req.Type {
 		case protocol.CommandForward, protocol.CommandForwardBatch, protocol.CommandUnforward,
 			protocol.CommandSync, protocol.CommandStatus, protocol.CommandList:
+		case protocol.CommandOpen, protocol.CommandOpProxy:
+			if err := d.verifyPeerRequest(req, p); err != nil {
+				d.logger.Warn("Refused unvouched tailnet request", "type", req.Type, "node", p.node, "error", err)
+				return protocol.NewErrorResponse(req.ID, fmt.Errorf("%s refused: %w", req.Type, err))
+			}
 		default:
 			return protocol.NewErrorResponse(req.ID, fmt.Errorf("%s is not available over the tailnet", req.Type))
 		}
@@ -363,12 +370,35 @@ func isConnectivityProbe(req *protocol.Request) bool {
 	return req.Type == protocol.CommandStatus && strings.HasPrefix(req.ID, "connectivity-check-")
 }
 
+// verifyPeerRequest checks that a tailnet peer's request came from its
+// monitor, by asking the peer's relay to vouch for the request ID, and stamps
+// the origin with the node whois named.
+func (d *Daemon) verifyPeerRequest(req *protocol.Request, p *peer) error {
+	if req.Origin == nil {
+		return fmt.Errorf("no origin; send it through the monitor")
+	}
+	ctx, cancel := context.WithTimeout(d.ctx, verifyTimeout)
+	defer cancel()
+	relay := net.JoinHostPort(p.ip, fmt.Sprint(d.config.Tailnet.RelayPort))
+	if err := d.verify(ctx, relay, req.ID); err != nil {
+		return err
+	}
+	req.Origin.Node = p.node
+	return nil
+}
+
+const verifyTimeout = 5 * time.Second
+
 // handleOpenCommand handles the open URL command
 func (d *Daemon) handleOpenCommand(req *protocol.Request) *protocol.Response {
 	// Parse payload
 	var openReq protocol.OpenRequest
 	if err := json.Unmarshal(req.Payload, &openReq); err != nil {
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid payload: %w", err))
+	}
+
+	if req.Origin != nil {
+		d.logger.Info("Opening URL for remote caller", "url", openReq.URL, "origin", req.Origin.String())
 	}
 
 	// Open URL

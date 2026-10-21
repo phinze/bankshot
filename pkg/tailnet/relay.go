@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"strconv"
@@ -21,6 +22,9 @@ type Relay struct {
 	// Forwarding reports whether the monitor is forwarding port. The relay
 	// reaches no other port, so it can't be used to probe this machine.
 	Forwarding func(port int) bool
+	// Vouches reports whether the monitor has the request with this ID in
+	// flight. Nil vouches for nothing.
+	Vouches func(id string) bool
 }
 
 const relayTimeout = 5 * time.Second
@@ -63,6 +67,15 @@ func (r *Relay) handle(conn net.Conn) {
 		_ = reply(protocol.RelayResponse{Error: "invalid relay request"})
 		return
 	}
+	if req.Verify != "" {
+		if r.Vouches != nil && r.Vouches(req.Verify) {
+			_ = reply(protocol.RelayResponse{OK: true})
+			return
+		}
+		r.Logger.Warn("Relay asked to vouch for a request it didn't send", "node", id.Node, "request", req.Verify)
+		_ = reply(protocol.RelayResponse{Error: "no such request"})
+		return
+	}
 	if !r.Forwarding(req.Port) {
 		r.Logger.Info("Relay refused port it isn't forwarding", "node", id.Node, "port", req.Port)
 		_ = reply(protocol.RelayResponse{Error: "port is not forwarded", NotForwarded: true})
@@ -80,6 +93,36 @@ func (r *Relay) handle(conn net.Conn) {
 	}
 	_ = conn.SetDeadline(time.Time{})
 	Splice(conn, reader, backend, backend)
+}
+
+// Verify asks the relay at addr whether its monitor sent the request with
+// this ID.
+func Verify(ctx context.Context, addr, id string) error {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("reach relay: %w", err)
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	b, _ := json.Marshal(protocol.RelayRequest{Verify: id})
+	if _, err := conn.Write(append(b, '\n')); err != nil {
+		return fmt.Errorf("ask relay: %w", err)
+	}
+	line, err := bufio.NewReader(conn).ReadBytes('\n')
+	if err != nil {
+		return fmt.Errorf("read relay answer: %w", err)
+	}
+	var resp protocol.RelayResponse
+	if err := json.Unmarshal(line, &resp); err != nil {
+		return fmt.Errorf("parse relay answer: %w", err)
+	}
+	if !resp.OK {
+		return fmt.Errorf("relay won't vouch: %s", resp.Error)
+	}
+	return nil
 }
 
 // dialLoopback reaches port on IPv4 loopback, or IPv6 for servers that bound

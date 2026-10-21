@@ -61,6 +61,11 @@ type TailnetConfig struct {
 	// Heartbeat is how often the monitor syncs its forwards to renew the
 	// lease. Default 2m.
 	Heartbeat string `yaml:"heartbeat,omitempty"`
+	// LocalSocket is where the monitor listens for this host's bankshot
+	// CLI (open, xdg-open, op) and passes requests on to the daemon. The
+	// CLI uses it instead of Address when tailnet is enabled. Default
+	// ~/.bankshot.sock.
+	LocalSocket string `yaml:"local_socket,omitempty"`
 }
 
 // LeaseDuration parses Lease, falling back to the default.
@@ -122,6 +127,7 @@ func DefaultConfig() *Config {
 		Tailnet: TailnetConfig{
 			ControlPort: 61000,
 			RelayPort:   61001,
+			LocalSocket: "~/.bankshot.sock",
 		},
 	}
 }

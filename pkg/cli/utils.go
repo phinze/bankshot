@@ -29,8 +29,10 @@ func getSocketPath() (string, error) {
 		return "", fmt.Errorf("invalid config: %w", err)
 	}
 
-	if cfg.Network == "tcp" {
-		return cfg.Address, nil
+	// On a tailnet host the CLI talks to the local monitor, which vouches
+	// for it to the daemon.
+	if cfg.Tailnet.Enabled {
+		return homedir.Expand(cfg.Tailnet.LocalSocket)
 	}
 
 	return cfg.Address, nil

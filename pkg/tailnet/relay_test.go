@@ -1,6 +1,7 @@
 package tailnet_test
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net"
@@ -112,5 +113,25 @@ func TestRelayEndToEnd(t *testing.T) {
 			t.Fatal("forward of a port the relay refuses was not dropped")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestRelayVouches(t *testing.T) {
+	ln := listen(t)
+	relay := &tailnet.Relay{
+		Gate:       tailnet.NewGate(nil, nil, true),
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Forwarding: func(int) bool { return false },
+		Vouches:    func(id string) bool { return id == "mine" },
+	}
+	go relay.Serve(ln)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := tailnet.Verify(ctx, ln.Addr().String(), "mine"); err != nil {
+		t.Errorf("Verify of the monitor's own request: %v", err)
+	}
+	if err := tailnet.Verify(ctx, ln.Addr().String(), "forged"); err == nil {
+		t.Error("Verify of a request the monitor never sent succeeded")
 	}
 }

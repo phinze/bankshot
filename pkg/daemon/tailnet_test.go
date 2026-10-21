@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -30,13 +32,37 @@ func request(t *testing.T, typ protocol.CommandType, payload any) *protocol.Requ
 	return &protocol.Request{ID: "t", Type: typ, Payload: b}
 }
 
-func TestTailnetPeersOnlyForward(t *testing.T) {
+func TestTailnetPeerCommandGate(t *testing.T) {
+	t.Setenv("BANKSHOT_TEST_NO_BROWSER", "1")
 	d := newTailnetDaemon(t)
-	p := &peer{node: "foxtrotbase", ip: "100.99.110.72"}
-	for _, typ := range []protocol.CommandType{protocol.CommandOpen, protocol.CommandOpProxy, protocol.CommandReconcile} {
-		if resp := d.handleCommand(request(t, typ, map[string]any{}), p); resp.Success {
-			t.Errorf("%s over the tailnet succeeded, want refused", typ)
+	vouched := map[string]bool{"vouched": true}
+	d.verify = func(_ context.Context, relay, id string) error {
+		if relay != "100.99.110.72:61001" {
+			t.Errorf("asked relay %s, want the peer's", relay)
 		}
+		if !vouched[id] {
+			return errors.New("no such request")
+		}
+		return nil
+	}
+	p := &peer{node: "foxtrotbase", ip: "100.99.110.72"}
+	open := func(id string, origin *protocol.Origin) *protocol.Response {
+		req := request(t, protocol.CommandOpen, protocol.OpenRequest{URL: "https://example.com"})
+		req.ID, req.Origin = id, origin
+		return d.handleCommand(req, p)
+	}
+
+	if resp := open("vouched", &protocol.Origin{Node: "spoofed", Chain: []string{"xdg-open"}}); !resp.Success {
+		t.Errorf("vouched open refused: %s", resp.Error)
+	}
+	if resp := open("forged", &protocol.Origin{}); resp.Success {
+		t.Error("open the relay didn't vouch for succeeded")
+	}
+	if resp := open("vouched", nil); resp.Success {
+		t.Error("open without an origin succeeded")
+	}
+	if resp := d.handleCommand(request(t, protocol.CommandReconcile, map[string]any{}), p); resp.Success {
+		t.Error("reconcile over the tailnet succeeded, want refused")
 	}
 	if resp := d.handleCommand(request(t, protocol.CommandSync, protocol.SyncRequest{}), nil); resp.Success {
 		t.Error("sync over the local socket succeeded, want refused")
