@@ -46,6 +46,7 @@ type SessionMonitor struct {
 	resolveParentPID   func(pid int) int    // defaults to ResolveParentPID
 	gracePeriod        time.Duration
 	activeForwards     map[string]ForwardInfo // key: "port" (PID not needed)
+	wanted             map[string]PortEvent   // key: "port"; every open port that passed the filters, forwarded or not
 	pendingRemovals    map[string]time.Time   // forwards pending removal
 	batchWindow        time.Duration          // coalesce newly-opened ports for this long before forwarding
 	pendingBatch       map[int]PortEvent      // ports awaiting the next batch flush, keyed by port
@@ -127,6 +128,7 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 		gracePeriod:        cfg.GracePeriod,
 		batchWindow:        cfg.BatchWindow,
 		activeForwards:     make(map[string]ForwardInfo),
+		wanted:             make(map[string]PortEvent),
 		pendingRemovals:    make(map[string]time.Time),
 		pendingBatch:       make(map[int]PortEvent),
 	}, nil
@@ -218,6 +220,7 @@ func (m *SessionMonitor) handlePortEvent(event PortEvent) {
 // handlePortOpened queues a newly opened port for the next batch forward.
 func (m *SessionMonitor) handlePortOpened(key string, event PortEvent) {
 	m.mutex.Lock()
+	m.wanted[key] = event
 
 	// Check if this port had a pending removal (server restart case)
 	if _, wasPending := m.pendingRemovals[key]; wasPending {
@@ -365,8 +368,10 @@ func (m *SessionMonitor) handlePortClosed(key string, event PortEvent) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// Check if we have this forward
-	if _, exists := m.activeForwards[key]; !exists {
+	// Check if we have this forward, or wanted it and failed
+	_, active := m.activeForwards[key]
+	_, wanted := m.wanted[key]
+	if !active && !wanted {
 		return
 	}
 
@@ -421,6 +426,7 @@ func (m *SessionMonitor) cleanupPendingRemovals() {
 				m.removeForward(fwd)
 				delete(m.activeForwards, key)
 			}
+			delete(m.wanted, key)
 			delete(m.pendingRemovals, key)
 		}
 	}
@@ -542,9 +548,104 @@ func (m *SessionMonitor) cleanup() error {
 	}
 
 	m.activeForwards = make(map[string]ForwardInfo)
+	m.wanted = make(map[string]PortEvent)
 	m.pendingRemovals = make(map[string]time.Time)
 
 	return nil
+}
+
+// Seed treats every port already listening as just opened. Port sources
+// take the listeners present at start as a silent baseline, so without this
+// a monitor started after its servers would never forward them. Listeners
+// found this way carry no PID, so ignoreProcesses can't screen them, the
+// same as `bankshot monitor reconcile`.
+func (m *SessionMonitor) Seed() error {
+	ports, err := GetListeningPorts()
+	if err != nil {
+		return fmt.Errorf("list listening ports: %w", err)
+	}
+	for _, p := range ports {
+		m.handlePortEvent(PortEvent{
+			Type:      PortOpened,
+			Port:      p.Port,
+			Protocol:  p.Protocol,
+			BindAddr:  p.BindAddr,
+			Timestamp: time.Now(),
+		})
+	}
+	return nil
+}
+
+// Forwarding reports whether port is open and meant to be forwarded. The
+// tailnet relay reaches only these ports.
+func (m *SessionMonitor) Forwarding(port int) bool {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	_, ok := m.wanted[fmt.Sprintf("%d", port)]
+	return ok
+}
+
+// Sync declares every wanted port to the daemon in one sync request, which
+// converges the daemon to that set and renews this host's tailnet lease.
+// Ports that failed to forward earlier, say while the daemon was asleep, get
+// another try each time. It returns the lease the daemon granted.
+func (m *SessionMonitor) Sync() (time.Duration, error) {
+	m.mutex.RLock()
+	events := make([]PortEvent, 0, len(m.wanted))
+	for _, e := range m.wanted {
+		events = append(events, e)
+	}
+	m.mutex.RUnlock()
+	sort.Slice(events, func(i, j int) bool { return events[i].Port < events[j].Port })
+
+	ports := make([]protocol.BatchForwardPort, 0, len(events))
+	for _, e := range events {
+		ports = append(ports, protocol.BatchForwardPort{
+			RemotePort:  e.Port,
+			LocalPort:   e.Port,
+			Host:        "localhost",
+			ProcessName: e.ProcessName,
+			ProcessCwd:  e.ProcessCwd,
+		})
+	}
+	payload, _ := json.Marshal(protocol.SyncRequest{Forwards: ports})
+	req := &protocol.Request{ID: uuid.New().String(), Type: protocol.CommandSync, Payload: payload}
+
+	resp, err := m.daemonClient.SendRequest(req)
+	if err != nil {
+		return 0, fmt.Errorf("send sync: %w", err)
+	}
+	if !resp.Success {
+		return 0, fmt.Errorf("sync failed: %s", resp.Error)
+	}
+	var syncResp protocol.SyncResponse
+	if err := json.Unmarshal(resp.Data, &syncResp); err != nil {
+		return 0, fmt.Errorf("parse sync response: %w", err)
+	}
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	for _, r := range syncResp.Results {
+		key := fmt.Sprintf("%d", r.RemotePort)
+		e, stillWanted := m.wanted[key]
+		if r.Error != "" || !stillWanted {
+			if r.Error != "" {
+				m.logger.Debug("Port did not forward on sync", "port", r.RemotePort, "error", r.Error)
+			}
+			continue
+		}
+		if _, ok := m.activeForwards[key]; !ok {
+			m.activeForwards[key] = ForwardInfo{
+				PID:         e.PID,
+				Port:        e.Port,
+				ProcessName: e.ProcessName,
+				RequestID:   req.ID,
+				CreatedAt:   time.Now(),
+			}
+		}
+	}
+	m.logger.Debug("Synced forwards with daemon", "ports", len(ports))
+	return time.Duration(syncResp.LeaseSeconds) * time.Second, nil
 }
 
 // GetStatus returns the current status of the monitor

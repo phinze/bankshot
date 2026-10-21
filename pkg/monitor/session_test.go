@@ -3,6 +3,8 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"sync"
 	"testing"
@@ -470,5 +472,64 @@ func TestHandlePortEvent_IgnoreProcesses(t *testing.T) {
 				t.Errorf("forward created = %v, want %v", got, tt.wantForward)
 			}
 		})
+	}
+}
+
+// flakyDaemonClient fails every request while down, and answers sync with a
+// success for every port.
+type flakyDaemonClient struct {
+	down bool
+}
+
+func (c *flakyDaemonClient) SendRequest(req *protocol.Request) (*protocol.Response, error) {
+	if c.down {
+		return nil, fmt.Errorf("daemon asleep")
+	}
+	if req.Type != protocol.CommandSync {
+		return &protocol.Response{Success: true}, nil
+	}
+	var sr protocol.SyncRequest
+	_ = json.Unmarshal(req.Payload, &sr)
+	var results []protocol.BatchForwardResult
+	for _, p := range sr.Forwards {
+		results = append(results, protocol.BatchForwardResult{RemotePort: p.RemotePort, LocalPort: p.LocalPort, Created: true})
+	}
+	data, _ := json.Marshal(protocol.SyncResponse{Results: results, LeaseSeconds: 360})
+	return &protocol.Response{Success: true, Data: data}, nil
+}
+
+func TestSyncRetriesPortsThatFailedWhileDaemonDown(t *testing.T) {
+	client := &flakyDaemonClient{down: true}
+	sm, _ := NewSessionMonitor(SessionConfig{
+		SessionID:       "test",
+		DaemonClient:    client,
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		PortEventSource: &mockPortEventSource{},
+	})
+	sm.resolveProcessName = func(int) string { return "" }
+	sm.resolveProcessCwd = func(int) string { return "" }
+	sm.resolveParentPID = func(int) int { return 0 }
+
+	sm.handlePortEvent(PortEvent{Type: PortOpened, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
+	if len(sm.activeForwards) != 0 {
+		t.Fatalf("forward recorded active while the daemon was down")
+	}
+	if !sm.Forwarding(5000) {
+		t.Error("Forwarding(5000) = false, want true: the port is open and wanted")
+	}
+	if sm.Forwarding(5001) {
+		t.Error("Forwarding(5001) = true for a port never opened")
+	}
+
+	if _, err := sm.Sync(); err == nil {
+		t.Fatal("Sync succeeded while the daemon was down")
+	}
+	client.down = false
+	lease, err := sm.Sync()
+	if err != nil || lease != 6*time.Minute {
+		t.Fatalf("Sync = %v, %v", lease, err)
+	}
+	if _, ok := sm.activeForwards["5000"]; !ok {
+		t.Error("port 5000 not active after a successful sync")
 	}
 }

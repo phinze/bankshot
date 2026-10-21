@@ -12,6 +12,7 @@ import (
 	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/monitor"
 	"github.com/phinze/bankshot/pkg/protocol"
+	"github.com/phinze/bankshot/pkg/tailnet"
 )
 
 // Monitor is the remote-side service that monitors ports and requests forwards
@@ -165,8 +166,19 @@ func (d *Monitor) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start socket connectivity monitor for sleep/wake recovery
-	go d.socketConnectivityLoop(monitorCtx, daemonClient)
+	if d.config.Tailnet.Enabled {
+		// Over the tailnet, the sync heartbeat both keeps the daemon's lease
+		// alive and repairs forwards after the daemon comes back, so there's
+		// no separate connectivity probe.
+		if err := d.sessionMonitor.Seed(); err != nil {
+			d.logger.Warn("Failed to seed already-listening ports", "error", err)
+		}
+		go d.serveRelay(monitorCtx)
+		go d.heartbeatLoop(monitorCtx)
+	} else {
+		// Start socket connectivity monitor for sleep/wake recovery
+		go d.socketConnectivityLoop(monitorCtx, daemonClient)
+	}
 
 	// Wait for shutdown signal
 	<-ctx.Done()
@@ -181,6 +193,82 @@ func (d *Monitor) Start(ctx context.Context) error {
 	return nil
 }
 
+const (
+	daemonDialTimeout    = 5 * time.Second
+	daemonRequestTimeout = time.Minute // a big ssh batch runs ssh -O forward per port
+)
+
+// serveRelay listens on this machine's tailnet address for the daemon's
+// relayed connections. At boot the tailnet may not be up yet, so it keeps
+// trying until it is.
+func (d *Monitor) serveRelay(ctx context.Context) {
+	var ln net.Listener
+	for delay := time.Second; ; delay = min(delay*2, time.Minute) {
+		ip, err := tailnet.IPv4(ctx)
+		if err == nil {
+			ln, err = net.Listen("tcp", net.JoinHostPort(ip, fmt.Sprint(d.config.Tailnet.RelayPort)))
+		}
+		if err == nil {
+			break
+		}
+		d.logger.Warn("Tailnet relay not up yet, retrying", "error", err, "in", delay)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+	}
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+	d.logger.Info("Relaying forwards over the tailnet", "address", ln.Addr())
+	relay := &tailnet.Relay{
+		Gate:       tailnet.NewGate(d.config.Tailnet.Allow, tailnet.Whois, false),
+		Logger:     d.logger,
+		Forwarding: d.sessionMonitor.Forwarding,
+	}
+	relay.Serve(ln)
+}
+
+// heartbeatLoop syncs this host's forwards to the daemon: once shortly after
+// start, then every heartbeat. Each sync renews the lease that keeps the
+// daemon's forwards alive. While the daemon is unreachable it retries more
+// often, so forwards come back soon after the laptop wakes.
+func (d *Monitor) heartbeatLoop(ctx context.Context) {
+	interval := d.config.Tailnet.HeartbeatDuration()
+	retry := min(30*time.Second, interval)
+	next := 10 * time.Second // let the initial port scan settle first
+	first := true
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(next):
+		}
+		lease, err := d.sessionMonitor.Sync()
+		if err != nil {
+			if d.socketReachable || first {
+				d.logger.Warn("Daemon unreachable over the tailnet", "error", err)
+			}
+			first = false
+			d.socketReachable = false
+			next = retry
+			continue
+		}
+		if !d.socketReachable {
+			d.logger.Info("Synced forwards with daemon over the tailnet", "lease", lease)
+		}
+		if lease > 0 && lease <= interval {
+			d.logger.Warn("Daemon lease is shorter than the heartbeat; forwards will lapse between syncs",
+				"lease", lease, "heartbeat", interval)
+		}
+		first = false
+		d.socketReachable = true
+		next = interval
+	}
+}
+
 // localDaemonClient implements DaemonClient for sending requests to local daemon
 type localDaemonClient struct {
 	network string
@@ -189,12 +277,15 @@ type localDaemonClient struct {
 }
 
 func (c *localDaemonClient) SendRequest(req *protocol.Request) (*protocol.Response, error) {
-	// Connect to the daemon through the configured SSH-forwarded transport.
-	conn, err := net.Dial(c.network, c.address)
+	// Connect to the daemon through the configured transport: an
+	// SSH-forwarded socket, or the daemon's tailnet address. Bound both, so a
+	// laptop that's asleep fails the request rather than hanging it.
+	conn, err := net.DialTimeout(c.network, c.address, daemonDialTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
 	}
 	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(daemonRequestTimeout))
 
 	// Marshal request
 	reqData, err := json.Marshal(req)
