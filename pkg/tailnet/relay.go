@@ -79,7 +79,7 @@ func (r *Relay) handle(conn net.Conn) {
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
-	Splice(conn, backend, reader)
+	Splice(conn, reader, backend, backend)
 }
 
 // dialLoopback reaches port on IPv4 loopback, or IPv6 for servers that bound

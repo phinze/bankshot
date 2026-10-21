@@ -25,8 +25,8 @@ func listen(t *testing.T) net.Listener {
 func port(ln net.Listener) int { return ln.Addr().(*net.TCPAddr).Port }
 
 // TestRelayEndToEnd runs a real daemon-side forwarder against a real monitor
-// relay, both on loopback: bytes written to the forwarded local port come back
-// from an echo server behind the relay.
+// relay, both on loopback: bytes written to the forwarded local port reach the
+// server behind the relay, and its answer comes back.
 func TestRelayEndToEnd(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
@@ -37,7 +37,11 @@ func TestRelayEndToEnd(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func() { defer c.Close(); _, _ = io.Copy(c, c) }()
+			go func() {
+				defer c.Close()
+				in, _ := io.ReadAll(c)
+				_, _ = c.Write(append([]byte("got:"), in...))
+			}()
 		}
 	}()
 
@@ -85,7 +89,7 @@ func TestRelayEndToEnd(t *testing.T) {
 	_ = conn.(*net.TCPConn).CloseWrite()
 	got, err := io.ReadAll(conn)
 	conn.Close()
-	if err != nil || string(got) != "ping" {
+	if err != nil || string(got) != "got:ping" {
 		t.Fatalf("echo through relay = %q, %v", got, err)
 	}
 

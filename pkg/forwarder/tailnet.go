@@ -245,7 +245,7 @@ func (f *TailnetForwarder) relay(fwd *tailnetForward, local net.Conn) {
 		return
 	}
 
-	tailnet.Splice(local, remote, reader)
+	tailnet.Splice(local, local, remote, reader)
 }
 
 type relayRefusedError struct {

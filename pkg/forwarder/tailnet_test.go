@@ -54,14 +54,16 @@ func fakeRelay(t *testing.T, forwarded map[int]bool) string {
 				}
 				defer backend.Close()
 				reply(protocol.RelayResponse{OK: true})
-				tailnet.Splice(conn, backend, reader)
+				tailnet.Splice(conn, reader, backend, backend)
 			}()
 		}
 	}()
 	return ln.Addr().String()
 }
 
-// echoServer listens on a free loopback port and echoes what it reads.
+// echoServer listens on a free loopback port and answers "got:" plus what it
+// read. It doesn't echo verbatim, so a relay that loops a client's bytes back
+// to it can't pass for a working one.
 func echoServer(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -77,7 +79,8 @@ func echoServer(t *testing.T) int {
 			}
 			go func() {
 				defer conn.Close()
-				_, _ = io.Copy(conn, conn)
+				in, _ := io.ReadAll(conn)
+				_, _ = conn.Write(append([]byte("got:"), in...))
 			}()
 		}
 	}()
@@ -140,7 +143,7 @@ func TestTailnetForwardRelays(t *testing.T) {
 	}
 
 	got, err := roundTrip(t, local, "hello over the tailnet")
-	if err != nil || got != "hello over the tailnet" {
+	if err != nil || got != "got:hello over the tailnet" {
 		t.Fatalf("round trip = %q, %v", got, err)
 	}
 

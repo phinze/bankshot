@@ -6,12 +6,13 @@ import (
 )
 
 // Splice copies bytes both ways between a and b until both directions finish,
-// passing each side's EOF along as a half-close. bReader reads from b, and
-// may hold bytes already buffered from it.
-func Splice(a, b net.Conn, bReader io.Reader) {
+// passing each side's EOF along as a half-close. aReader and bReader read
+// from a and b; pass a bufio.Reader that already consumed a handshake so its
+// buffered bytes aren't lost, or the conn itself.
+func Splice(a net.Conn, aReader io.Reader, b net.Conn, bReader io.Reader) {
 	done := make(chan struct{})
 	go func() {
-		_, _ = io.Copy(b, a)
+		_, _ = io.Copy(b, aReader)
 		closeWrite(b)
 		close(done)
 	}()
