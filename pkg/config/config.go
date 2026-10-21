@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/mitchellh/go-homedir"
 	"gopkg.in/yaml.v3"
@@ -34,6 +35,48 @@ type Config struct {
 
 	// OpProxy configuration (for proxying 1Password CLI requests)
 	OpProxy OpProxyConfig `yaml:"op_proxy,omitempty"`
+
+	// Tailnet configures forwarding over Tailscale instead of ssh.
+	Tailnet TailnetConfig `yaml:"tailnet,omitempty"`
+}
+
+// TailnetConfig configures the tailnet transport. On the daemon it opens a
+// whois-gated control listener on the machine's tailnet address; on the
+// monitor it starts a relay and keeps the daemon's lease alive. The monitor
+// reaches the daemon through Network and Address as usual, e.g. tcp to
+// "laptop:61000".
+type TailnetConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// ControlPort is where the daemon listens for monitors. Default 61000.
+	ControlPort int `yaml:"control_port,omitempty"`
+	// RelayPort is where the monitor listens for the daemon's relayed
+	// connections. Default 61001.
+	RelayPort int `yaml:"relay_port,omitempty"`
+	// Allow lists the tailscale logins, node names, and tags allowed to
+	// connect. A tagged node must be named by node or tag.
+	Allow []string `yaml:"allow,omitempty"`
+	// Lease is how long a monitor keeps its forwards without being heard
+	// from. Default 6m.
+	Lease string `yaml:"lease,omitempty"`
+	// Heartbeat is how often the monitor syncs its forwards to renew the
+	// lease. Default 2m.
+	Heartbeat string `yaml:"heartbeat,omitempty"`
+}
+
+// LeaseDuration parses Lease, falling back to the default.
+func (t TailnetConfig) LeaseDuration() time.Duration {
+	if d, err := time.ParseDuration(t.Lease); err == nil && d > 0 {
+		return d
+	}
+	return 6 * time.Minute
+}
+
+// HeartbeatDuration parses Heartbeat, falling back to the default.
+func (t TailnetConfig) HeartbeatDuration() time.Duration {
+	if d, err := time.ParseDuration(t.Heartbeat); err == nil && d > 0 {
+		return d
+	}
+	return 2 * time.Minute
 }
 
 // MonitorConfig represents the configuration for bankshot monitor
@@ -75,6 +118,10 @@ func DefaultConfig() *Config {
 			Enabled:  false,
 			OpPath:   "op",
 			ReadOnly: true,
+		},
+		Tailnet: TailnetConfig{
+			ControlPort: 61000,
+			RelayPort:   61001,
 		},
 	}
 }

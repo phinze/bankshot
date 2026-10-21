@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +23,7 @@ import (
 	"github.com/phinze/bankshot/pkg/opener"
 	"github.com/phinze/bankshot/pkg/opproxy"
 	"github.com/phinze/bankshot/pkg/protocol"
+	"github.com/phinze/bankshot/pkg/tailnet"
 	"github.com/phinze/bankshot/version"
 )
 
@@ -35,7 +37,11 @@ type Daemon struct {
 	cancel      context.CancelFunc
 	opener      *opener.Opener
 	forwarder   forwarder.Forwarder
-	ssh         *forwarder.SSHForwarder // also d.forwarder; kept concrete for startup discovery
+	ssh         *forwarder.SSHForwarder     // also d.forwarder; kept concrete for startup discovery
+	tailnet     *forwarder.TailnetForwarder // nil unless tailnet forwarding is enabled
+	gate        *tailnet.Gate
+	busyMu      sync.Mutex
+	busy        map[string]bool // "node:port" forwards already reported busy
 	notifier    *notify.Notifier
 	opProxy     *opproxy.OpProxy
 	startTime   time.Time
@@ -47,7 +53,7 @@ type Daemon struct {
 func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
 	ssh := forwarder.NewSSH(logger, cfg.SSHCommand)
-	return &Daemon{
+	d := &Daemon{
 		config:    cfg,
 		logger:    logger,
 		ctx:       ctx,
@@ -58,7 +64,20 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		notifier:  notify.New(logger, cfg.NotifyCommand),
 		opProxy:   opproxy.New(&cfg.OpProxy, logger),
 		startTime: time.Now(),
+		busy:      make(map[string]bool),
 	}
+	if cfg.Tailnet.Enabled {
+		d.tailnet = forwarder.NewTailnet(logger, cfg.Tailnet.RelayPort, cfg.Tailnet.LeaseDuration())
+		d.gate = tailnet.NewGate(cfg.Tailnet.Allow, tailnet.Whois, false)
+	}
+	return d
+}
+
+// peer is a caller that reached the daemon over the tailnet, identified by
+// tailscale whois. A nil *peer means the local socket, i.e. the ssh path.
+type peer struct {
+	node string // tailnet node name; keys its forwards
+	ip   string // tailnet IP; where its relay listens
 }
 
 // Run starts the daemon
@@ -130,6 +149,15 @@ func (d *Daemon) Run() error {
 	d.wg.Add(1)
 	go d.reconcileLoop()
 
+	if d.tailnet != nil {
+		d.wg.Add(2)
+		go func() {
+			defer d.wg.Done()
+			d.tailnet.Run(d.ctx)
+		}()
+		go d.serveTailnet()
+	}
+
 	// Start accepting connections
 	d.wg.Add(1)
 	go d.acceptConnections()
@@ -176,13 +204,64 @@ func (d *Daemon) acceptConnections() {
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
-			d.handleConnection(conn)
+			d.handleConnection(conn, nil)
+		}()
+	}
+}
+
+// serveTailnet listens for monitors on this machine's tailnet address. At
+// login the tailnet may not be up yet, so it keeps trying until it is.
+func (d *Daemon) serveTailnet() {
+	defer d.wg.Done()
+
+	var ln net.Listener
+	for delay := time.Second; ; delay = min(delay*2, time.Minute) {
+		ip, err := tailnet.IPv4(d.ctx)
+		if err == nil {
+			ln, err = net.Listen("tcp", net.JoinHostPort(ip, fmt.Sprint(d.config.Tailnet.ControlPort)))
+		}
+		if err == nil {
+			break
+		}
+		d.logger.Warn("Tailnet listener not up yet, retrying", "error", err, "in", delay)
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+	}
+	go func() {
+		<-d.ctx.Done()
+		_ = ln.Close()
+	}()
+	d.logger.Info("Listening for monitors on the tailnet", "address", ln.Addr())
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if d.ctx.Err() != nil {
+				return
+			}
+			d.logger.Error("Failed to accept tailnet connection", "error", err)
+			continue
+		}
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			id, err := d.gate.Check(d.ctx, conn.RemoteAddr().String())
+			if err != nil {
+				d.logger.Warn("Rejected tailnet connection", "remote", conn.RemoteAddr(), "error", err)
+				_ = conn.Close()
+				return
+			}
+			ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+			d.handleConnection(conn, &peer{node: id.Node, ip: ip})
 		}()
 	}
 }
 
 // handleConnection handles a single connection
-func (d *Daemon) handleConnection(conn net.Conn) {
+func (d *Daemon) handleConnection(conn net.Conn, p *peer) {
 	defer func() {
 		_ = conn.Close()
 	}()
@@ -235,7 +314,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 	}
 
 	// Handle command
-	resp := d.handleCommand(req)
+	resp := d.handleCommand(req, p)
 
 	// Send response
 	d.sendResponse(conn, resp)
@@ -243,8 +322,19 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 	d.logger.Debug("Connection closed", "remote", remoteAddr)
 }
 
-// handleCommand processes a command and returns a response
-func (d *Daemon) handleCommand(req *protocol.Request) *protocol.Response {
+// handleCommand processes a command and returns a response. Tailnet peers
+// get the forwarding commands only, for now; open and op-proxy act on this
+// machine as the user and stay on the local socket until they get their own
+// look.
+func (d *Daemon) handleCommand(req *protocol.Request, p *peer) *protocol.Response {
+	if p != nil {
+		switch req.Type {
+		case protocol.CommandForward, protocol.CommandForwardBatch, protocol.CommandUnforward,
+			protocol.CommandSync, protocol.CommandStatus, protocol.CommandList:
+		default:
+			return protocol.NewErrorResponse(req.ID, fmt.Errorf("%s is not available over the tailnet", req.Type))
+		}
+	}
 	switch req.Type {
 	case protocol.CommandOpen:
 		return d.handleOpenCommand(req)
@@ -253,11 +343,13 @@ func (d *Daemon) handleCommand(req *protocol.Request) *protocol.Response {
 	case protocol.CommandList:
 		return d.handleListCommand(req)
 	case protocol.CommandForward:
-		return d.handleForwardCommand(req)
+		return d.handleForwardCommand(req, p)
 	case protocol.CommandForwardBatch:
-		return d.handleForwardBatchCommand(req)
+		return d.handleForwardBatchCommand(req, p)
 	case protocol.CommandUnforward:
-		return d.handleUnforwardCommand(req)
+		return d.handleUnforwardCommand(req, p)
+	case protocol.CommandSync:
+		return d.handleSyncCommand(req, p)
 	case protocol.CommandReconcile:
 		return d.handleReconcileCommand(req)
 	case protocol.CommandOpProxy:
@@ -296,7 +388,7 @@ func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 	uptime := time.Since(d.startTime).Round(time.Second).String()
 
 	// Get all forwards and group by connection
-	forwards := d.forwarder.ListForwards()
+	forwards := d.listForwards()
 	connectionMap := make(map[string]*protocol.ConnectionStatus)
 
 	for _, fwd := range forwards {
@@ -339,7 +431,7 @@ func (d *Daemon) handleStatusCommand(req *protocol.Request) *protocol.Response {
 
 // handleListCommand handles the list forwards command
 func (d *Daemon) handleListCommand(req *protocol.Request) *protocol.Response {
-	forwards := d.forwarder.ListForwards()
+	forwards := d.listForwards()
 
 	forwardInfos := make([]protocol.ForwardInfo, 0, len(forwards))
 	for _, fwd := range forwards {
@@ -364,7 +456,7 @@ func (d *Daemon) handleListCommand(req *protocol.Request) *protocol.Response {
 }
 
 // handleForwardCommand handles the port forward command
-func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response {
+func (d *Daemon) handleForwardCommand(req *protocol.Request, p *peer) *protocol.Response {
 	// Parse payload
 	var forwardReq protocol.ForwardRequest
 	if err := json.Unmarshal(req.Payload, &forwardReq); err != nil {
@@ -374,8 +466,8 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid forward request format: %w", err))
 	}
 
-	target := forwarder.Target{ConnectionInfo: forwardReq.ConnectionInfo, SocketPath: forwardReq.SocketPath}
-	results, err := d.forwarder.AddForwards(target, []forwarder.Port{{
+	fwdr, target := d.route(p, forwardReq.ConnectionInfo, forwardReq.SocketPath)
+	results, err := fwdr.AddForwards(target, []forwarder.Port{{
 		RemotePort: forwardReq.RemotePort,
 		LocalPort:  forwardReq.LocalPort,
 		Host:       forwardReq.Host,
@@ -384,6 +476,7 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 		return protocol.NewErrorResponse(req.ID, err)
 	}
 	res := results[0]
+	d.noteBusy(target.ConnectionInfo, res)
 	if res.Err != nil {
 		return protocol.NewErrorResponse(req.ID, res.Err)
 	}
@@ -405,7 +498,7 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 // It establishes every forward, then posts a single rolled-up notification for
 // the ones that were newly created so an initial SSH connection doesn't spam
 // the user with one toast per port.
-func (d *Daemon) handleForwardBatchCommand(req *protocol.Request) *protocol.Response {
+func (d *Daemon) handleForwardBatchCommand(req *protocol.Request, p *peer) *protocol.Response {
 	var batchReq protocol.BatchForwardRequest
 	if err := json.Unmarshal(req.Payload, &batchReq); err != nil {
 		d.logger.Error("Failed to parse batch forward request",
@@ -414,31 +507,119 @@ func (d *Daemon) handleForwardBatchCommand(req *protocol.Request) *protocol.Resp
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid batch forward request format: %w", err))
 	}
 
-	ports := make([]forwarder.Port, 0, len(batchReq.Forwards))
-	for _, fwd := range batchReq.Forwards {
-		ports = append(ports, forwarder.Port{RemotePort: fwd.RemotePort, LocalPort: fwd.LocalPort, Host: fwd.Host})
-	}
-	target := forwarder.Target{ConnectionInfo: batchReq.ConnectionInfo, SocketPath: batchReq.SocketPath}
-	fwdResults, err := d.forwarder.AddForwards(target, ports)
+	fwdr, target := d.route(p, batchReq.ConnectionInfo, batchReq.SocketPath)
+	fwdResults, err := fwdr.AddForwards(target, batchPorts(batchReq.Forwards))
 	if err != nil {
 		return protocol.NewErrorResponse(req.ID, err)
 	}
+	results := d.reportBatch(target.ConnectionInfo, batchReq.Forwards, fwdResults)
 
+	resp, err := protocol.NewSuccessResponse(req.ID, protocol.BatchForwardResponse{Results: results})
+	if err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+	return resp
+}
+
+// handleUnforwardCommand handles the port unforward command
+func (d *Daemon) handleUnforwardCommand(req *protocol.Request, p *peer) *protocol.Response {
+	// Parse payload
+	var unforwardReq protocol.UnforwardRequest
+	if err := json.Unmarshal(req.Payload, &unforwardReq); err != nil {
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid unforward request format: %w", err))
+	}
+
+	// Default values
+	host := unforwardReq.Host
+	if host == "" {
+		host = "localhost"
+	}
+
+	// Remove forward
+	fwdr, target := d.route(p, unforwardReq.ConnectionInfo, "")
+	d.clearBusy(target.ConnectionInfo, unforwardReq.RemotePort)
+	if err := fwdr.RemoveForward(target.ConnectionInfo, unforwardReq.RemotePort, host); err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+
+	// Return success
+	resp, _ := protocol.NewSuccessResponse(req.ID, map[string]interface{}{
+		"message": fmt.Sprintf("Removed forward for %s:%d",
+			host, unforwardReq.RemotePort),
+	})
+	return resp
+}
+
+// handleSyncCommand converges a tailnet peer's forwards to the full set it
+// declares and renews its lease. Monitors send it on start and as their
+// heartbeat.
+func (d *Daemon) handleSyncCommand(req *protocol.Request, p *peer) *protocol.Response {
+	if p == nil || d.tailnet == nil {
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("sync is only available over the tailnet"))
+	}
+	var syncReq protocol.SyncRequest
+	if err := json.Unmarshal(req.Payload, &syncReq); err != nil {
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid sync request format: %w", err))
+	}
+
+	_, target := d.route(p, "", "")
+	fwdResults, err := d.tailnet.Sync(target, batchPorts(syncReq.Forwards))
+	if err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+	results := d.reportBatch(target.ConnectionInfo, syncReq.Forwards, fwdResults)
+
+	resp, err := protocol.NewSuccessResponse(req.ID, protocol.SyncResponse{
+		Results:      results,
+		LeaseSeconds: int(d.tailnet.Lease().Seconds()),
+	})
+	if err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+	return resp
+}
+
+// route picks the forwarder for a caller and the target its forwards come
+// from. A tailnet peer's forwards are keyed by the node whois named and relay
+// to the address it called from, whatever its request claims.
+func (d *Daemon) route(p *peer, connectionInfo, socketPath string) (forwarder.Forwarder, forwarder.Target) {
+	if p == nil {
+		return d.forwarder, forwarder.Target{ConnectionInfo: connectionInfo, SocketPath: socketPath}
+	}
+	return d.tailnet, forwarder.Target{ConnectionInfo: p.node, Address: p.ip}
+}
+
+func batchPorts(forwards []protocol.BatchForwardPort) []forwarder.Port {
+	ports := make([]forwarder.Port, 0, len(forwards))
+	for _, fwd := range forwards {
+		ports = append(ports, forwarder.Port{RemotePort: fwd.RemotePort, LocalPort: fwd.LocalPort, Host: fwd.Host})
+	}
+	return ports
+}
+
+// reportBatch turns per-port forward results into protocol results, logging
+// failures and posting one notification for the ports newly forwarded.
+func (d *Daemon) reportBatch(connectionInfo string, requested []protocol.BatchForwardPort, fwdResults []forwarder.Result) []protocol.BatchForwardResult {
 	results := make([]protocol.BatchForwardResult, 0, len(fwdResults))
 	var created []notify.ForwardEvent
 
 	for i, r := range fwdResults {
-		fwd := batchReq.Forwards[i]
+		fwd := requested[i]
 		res := protocol.BatchForwardResult{
 			RemotePort: r.RemotePort,
 			LocalPort:  r.LocalPort,
 			Created:    r.Created,
 		}
+		news := d.noteBusy(connectionInfo, r)
 		if r.Err != nil {
 			res.Error = r.Err.Error()
-			d.logger.Warn("Batch forward failed for port",
+			log := d.logger.Warn
+			if !news {
+				log = d.logger.Debug // a busy port already reported, retried by a sync
+			}
+			log("Batch forward failed for port",
 				"port", r.RemotePort,
-				"connectionInfo", batchReq.ConnectionInfo,
+				"connectionInfo", connectionInfo,
 				"error", r.Err)
 		} else if r.Created {
 			created = append(created, notify.ForwardEvent{
@@ -454,41 +635,52 @@ func (d *Daemon) handleForwardBatchCommand(req *protocol.Request) *protocol.Resp
 
 	// One notification for the whole batch (single or rollup, decided downstream).
 	if len(created) > 0 {
-		d.notifier.NotifyForwards(batchReq.ConnectionInfo, created)
+		d.notifier.NotifyForwards(connectionInfo, created)
 	}
-
-	resp, err := protocol.NewSuccessResponse(req.ID, protocol.BatchForwardResponse{Results: results})
-	if err != nil {
-		return protocol.NewErrorResponse(req.ID, err)
-	}
-	return resp
+	return results
 }
 
-// handleUnforwardCommand handles the port unforward command
-func (d *Daemon) handleUnforwardCommand(req *protocol.Request) *protocol.Response {
-	// Parse payload
-	var unforwardReq protocol.UnforwardRequest
-	if err := json.Unmarshal(req.Payload, &unforwardReq); err != nil {
-		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid unforward request format: %w", err))
+// noteBusy tells the user the first time a forward can't take its local port.
+// Monitors retry on every sync, so later failures stay quiet until the port
+// forwards or the monitor stops asking for it. It reports whether r is news:
+// anything but a busy port already reported.
+func (d *Daemon) noteBusy(connectionInfo string, r forwarder.Result) bool {
+	key := fmt.Sprintf("%s:%d", connectionInfo, r.RemotePort)
+	d.busyMu.Lock()
+	defer d.busyMu.Unlock()
+	if !errors.Is(r.Err, forwarder.ErrPortBusy) {
+		delete(d.busy, key)
+		return true
 	}
-
-	// Default values
-	host := unforwardReq.Host
-	if host == "" {
-		host = "localhost"
+	if d.busy[key] {
+		return false
 	}
+	d.busy[key] = true
+	d.notifier.NotifyForwardBusy(connectionInfo, r.RemotePort, r.Err)
+	return true
+}
 
-	// Remove forward
-	if err := d.forwarder.RemoveForward(unforwardReq.ConnectionInfo, unforwardReq.RemotePort, host); err != nil {
-		return protocol.NewErrorResponse(req.ID, err)
+func (d *Daemon) clearBusy(connectionInfo string, remotePort int) {
+	d.busyMu.Lock()
+	defer d.busyMu.Unlock()
+	delete(d.busy, fmt.Sprintf("%s:%d", connectionInfo, remotePort))
+}
+
+// listForwards returns the forwards of every transport.
+func (d *Daemon) listForwards() []*forwarder.Forward {
+	forwards := d.forwarder.ListForwards()
+	if d.tailnet != nil {
+		forwards = append(forwards, d.tailnet.ListForwards()...)
 	}
+	return forwards
+}
 
-	// Return success
-	resp, _ := protocol.NewSuccessResponse(req.ID, map[string]interface{}{
-		"message": fmt.Sprintf("Removed forward for %s:%d",
-			host, unforwardReq.RemotePort),
-	})
-	return resp
+func (d *Daemon) reconcileAll() error {
+	err := d.forwarder.Reconcile()
+	if d.tailnet != nil {
+		err = errors.Join(err, d.tailnet.Reconcile())
+	}
+	return err
 }
 
 // handleOpProxyCommand handles the op-proxy command
@@ -517,7 +709,7 @@ func (d *Daemon) handleReconcileCommand(req *protocol.Request) *protocol.Respons
 	d.logger.Info("Reconciliation requested via API")
 
 	// Trigger reconciliation
-	if err := d.forwarder.Reconcile(); err != nil {
+	if err := d.reconcileAll(); err != nil {
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("reconciliation failed: %w", err))
 	}
 
@@ -713,7 +905,7 @@ func (d *Daemon) reconcileLoop() {
 			return
 		case <-ticker.C:
 			d.logger.Debug("Running periodic forward reconciliation")
-			if err := d.forwarder.Reconcile(); err != nil {
+			if err := d.reconcileAll(); err != nil {
 				d.logger.Warn("Reconciliation failed", "error", err)
 			}
 		}

@@ -142,6 +142,15 @@ func (n *Notifier) NotifyOpProxy(args []string) {
 	n.send("--title", title, "--body", body)
 }
 
+// NotifyForwardBusy posts a notification that a forward couldn't take its
+// local port, so the user knows why localhost:PORT isn't the remote service.
+func (n *Notifier) NotifyForwardBusy(connectionInfo string, remotePort int, err error) {
+	if n.helperPath == "" {
+		return
+	}
+	n.send("--title", fmt.Sprintf("Can't forward %s:%d", connectionInfo, remotePort), "--body", err.Error())
+}
+
 // shortPath returns the last two segments of a path for compact display.
 // e.g. "/home/user/projects/myapp" → "projects/myapp"
 func shortPath(p string) string {
