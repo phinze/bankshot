@@ -9,21 +9,21 @@ import (
 	"time"
 )
 
-func TestNew(t *testing.T) {
+func TestNewSSH(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	f := New(logger, "ssh")
+	f := NewSSH(logger, "ssh")
 
 	if f == nil {
-		t.Fatal("New() returned nil")
+		t.Fatal("NewSSH() returned nil")
 	}
 	if f.logger == nil {
-		t.Error("New() created Forwarder with nil logger")
+		t.Error("NewSSH() created SSHForwarder with nil logger")
 	}
 	if f.sshCmd != "ssh" {
-		t.Errorf("New() sshCmd = %v, want %v", f.sshCmd, "ssh")
+		t.Errorf("NewSSH() sshCmd = %v, want %v", f.sshCmd, "ssh")
 	}
 	if f.forwards == nil {
-		t.Error("New() created Forwarder with nil forwards map")
+		t.Error("NewSSH() created SSHForwarder with nil forwards map")
 	}
 }
 
@@ -34,7 +34,7 @@ func TestAddForward(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	f := New(logger, "ssh")
+	f := NewSSH(logger, "ssh")
 
 	tests := []struct {
 		name           string
@@ -86,7 +86,7 @@ func TestAddForward(t *testing.T) {
 
 func TestListForwards(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	f := New(logger, "ssh")
+	f := NewSSH(logger, "ssh")
 
 	// Initially empty
 	forwards := f.ListForwards()
@@ -123,7 +123,7 @@ func TestListForwards(t *testing.T) {
 
 func TestRemoveForward(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	f := New(logger, "ssh")
+	f := NewSSH(logger, "ssh")
 
 	// Add a forward manually
 	f.mu.Lock()
@@ -158,7 +158,7 @@ func TestRemoveForward(t *testing.T) {
 
 func TestCleanupForSocket(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	f := New(logger, "ssh")
+	f := NewSSH(logger, "ssh")
 
 	// Add multiple forwards
 	f.mu.Lock()
@@ -203,7 +203,7 @@ func TestCleanupForSocket(t *testing.T) {
 
 func TestCleanupForConnection(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	f := New(logger, "ssh")
+	f := NewSSH(logger, "ssh")
 
 	// Add multiple forwards
 	f.mu.Lock()
@@ -248,7 +248,7 @@ func TestCleanupForConnection(t *testing.T) {
 
 func TestListConnectionForwards(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	f := New(logger, "ssh")
+	f := NewSSH(logger, "ssh")
 
 	// Add multiple forwards
 	f.mu.Lock()
@@ -313,7 +313,7 @@ func TestFindControlSocket(t *testing.T) {
 
 func TestKeyGeneration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	f := New(logger, "ssh")
+	f := NewSSH(logger, "ssh")
 
 	// Test that duplicate forwards are handled correctly
 	f.mu.Lock()

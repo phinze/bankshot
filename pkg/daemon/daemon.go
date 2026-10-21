@@ -34,7 +34,8 @@ type Daemon struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	opener      *opener.Opener
-	forwarder   *forwarder.Forwarder
+	forwarder   forwarder.Forwarder
+	ssh         *forwarder.SSHForwarder // also d.forwarder; kept concrete for startup discovery
 	notifier    *notify.Notifier
 	opProxy     *opproxy.OpProxy
 	startTime   time.Time
@@ -45,13 +46,15 @@ type Daemon struct {
 // New creates a new daemon instance
 func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	ctx, cancel := context.WithCancel(context.Background())
+	ssh := forwarder.NewSSH(logger, cfg.SSHCommand)
 	return &Daemon{
 		config:    cfg,
 		logger:    logger,
 		ctx:       ctx,
 		cancel:    cancel,
 		opener:    opener.New(logger),
-		forwarder: forwarder.New(logger, cfg.SSHCommand),
+		forwarder: ssh,
+		ssh:       ssh,
 		notifier:  notify.New(logger, cfg.NotifyCommand),
 		opProxy:   opproxy.New(&cfg.OpProxy, logger),
 		startTime: time.Now(),
@@ -371,42 +374,29 @@ func (d *Daemon) handleForwardCommand(req *protocol.Request) *protocol.Response 
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid forward request format: %w", err))
 	}
 
-	// Find socket path if not provided
-	socketPath := forwardReq.SocketPath
-	if socketPath == "" {
-		var err error
-		socketPath, err = forwarder.FindControlSocket(forwardReq.ConnectionInfo)
-		if err != nil {
-			return protocol.NewErrorResponse(req.ID, fmt.Errorf("failed to find SSH socket: %w", err))
-		}
-	}
-
-	// Add forward
-	created, err := d.forwarder.AddForward(socketPath, forwardReq.ConnectionInfo, forwardReq.RemotePort, forwardReq.LocalPort, forwardReq.Host)
+	target := forwarder.Target{ConnectionInfo: forwardReq.ConnectionInfo, SocketPath: forwardReq.SocketPath}
+	results, err := d.forwarder.AddForwards(target, []forwarder.Port{{
+		RemotePort: forwardReq.RemotePort,
+		LocalPort:  forwardReq.LocalPort,
+		Host:       forwardReq.Host,
+	}})
 	if err != nil {
 		return protocol.NewErrorResponse(req.ID, err)
 	}
-
-	// Default values
-	host := forwardReq.Host
-	if host == "" {
-		host = "localhost"
-	}
-	localPort := forwardReq.LocalPort
-	if localPort == 0 {
-		localPort = forwardReq.RemotePort
+	res := results[0]
+	if res.Err != nil {
+		return protocol.NewErrorResponse(req.ID, res.Err)
 	}
 
 	// Notify on new forwards (not duplicates from reconciliation)
-	if created {
-		d.notifier.NotifyForward(forwardReq.RemotePort, localPort, host, forwardReq.ProcessName, forwardReq.ProcessCwd)
+	if res.Created {
+		d.notifier.NotifyForward(res.RemotePort, res.LocalPort, res.Host, forwardReq.ProcessName, forwardReq.ProcessCwd)
 	}
 
 	// Return success
 	resp, _ := protocol.NewSuccessResponse(req.ID, map[string]interface{}{
 		"message": fmt.Sprintf("Forwarded %s:%d to localhost:%d",
-			host, forwardReq.RemotePort, localPort),
-		"socket_path": socketPath,
+			res.Host, res.RemotePort, res.LocalPort),
 	})
 	return resp
 }
@@ -424,46 +414,37 @@ func (d *Daemon) handleForwardBatchCommand(req *protocol.Request) *protocol.Resp
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid batch forward request format: %w", err))
 	}
 
-	// Resolve the control socket once for the whole batch.
-	socketPath := batchReq.SocketPath
-	if socketPath == "" {
-		var err error
-		socketPath, err = forwarder.FindControlSocket(batchReq.ConnectionInfo)
-		if err != nil {
-			return protocol.NewErrorResponse(req.ID, fmt.Errorf("failed to find SSH socket: %w", err))
-		}
+	ports := make([]forwarder.Port, 0, len(batchReq.Forwards))
+	for _, fwd := range batchReq.Forwards {
+		ports = append(ports, forwarder.Port{RemotePort: fwd.RemotePort, LocalPort: fwd.LocalPort, Host: fwd.Host})
+	}
+	target := forwarder.Target{ConnectionInfo: batchReq.ConnectionInfo, SocketPath: batchReq.SocketPath}
+	fwdResults, err := d.forwarder.AddForwards(target, ports)
+	if err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
 	}
 
-	results := make([]protocol.BatchForwardResult, 0, len(batchReq.Forwards))
+	results := make([]protocol.BatchForwardResult, 0, len(fwdResults))
 	var created []notify.ForwardEvent
 
-	for _, fwd := range batchReq.Forwards {
-		host := fwd.Host
-		if host == "" {
-			host = "localhost"
-		}
-		localPort := fwd.LocalPort
-		if localPort == 0 {
-			localPort = fwd.RemotePort
-		}
-
-		wasCreated, err := d.forwarder.AddForward(socketPath, batchReq.ConnectionInfo, fwd.RemotePort, fwd.LocalPort, fwd.Host)
+	for i, r := range fwdResults {
+		fwd := batchReq.Forwards[i]
 		res := protocol.BatchForwardResult{
-			RemotePort: fwd.RemotePort,
-			LocalPort:  localPort,
-			Created:    wasCreated,
+			RemotePort: r.RemotePort,
+			LocalPort:  r.LocalPort,
+			Created:    r.Created,
 		}
-		if err != nil {
-			res.Error = err.Error()
+		if r.Err != nil {
+			res.Error = r.Err.Error()
 			d.logger.Warn("Batch forward failed for port",
-				"port", fwd.RemotePort,
+				"port", r.RemotePort,
 				"connectionInfo", batchReq.ConnectionInfo,
-				"error", err)
-		} else if wasCreated {
+				"error", r.Err)
+		} else if r.Created {
 			created = append(created, notify.ForwardEvent{
-				RemotePort:  fwd.RemotePort,
-				LocalPort:   localPort,
-				Host:        host,
+				RemotePort:  r.RemotePort,
+				LocalPort:   r.LocalPort,
+				Host:        r.Host,
 				ProcessName: fwd.ProcessName,
 				ProcessCwd:  fwd.ProcessCwd,
 			})
@@ -694,7 +675,7 @@ func (d *Daemon) autoDiscoverForwards() error {
 		// Register the forward in our forwarder (without executing SSH command)
 		// Note: We're assuming the remote port is the same as local port
 		// This might not always be accurate, but it's a reasonable default
-		err := d.forwarder.RegisterExistingForward(
+		err := d.ssh.RegisterExistingForward(
 			fwd.SocketPath,
 			fwd.ConnectionInfo,
 			fwd.RemotePort,
