@@ -494,6 +494,16 @@ func (m *SessionMonitor) shouldForwardPort(port int, bindAddr string) bool {
 	return ShouldForwardPort(port, bindAddr, m.portRanges, m.ignorePorts)
 }
 
+// IgnoresProcess reports whether pid or one of its ancestors matches
+// ignoreProcesses, and the name that matched. An unresolved owner (pid 0)
+// is never ignored.
+func (m *SessionMonitor) IgnoresProcess(pid int) (bool, string) {
+	if pid == 0 || len(m.processMatchers) == 0 {
+		return false, ""
+	}
+	return m.shouldIgnoreProcess(pid, m.resolveProcessName(pid))
+}
+
 // shouldIgnoreProcess checks if the process or any of its ancestors match an
 // ignoreProcesses entry. It first checks the given name, then walks the process
 // tree upward via resolveParentPID, resolving each ancestor's name and checking
@@ -556,9 +566,9 @@ func (m *SessionMonitor) cleanup() error {
 
 // Seed treats every port already listening as just opened. Port sources
 // take the listeners present at start as a silent baseline, so without this
-// a monitor started after its servers would never forward them. Listeners
-// found this way carry no PID, so ignoreProcesses can't screen them, the
-// same as `bankshot monitor reconcile`.
+// a monitor started after its servers would never forward them. Each goes
+// through the same filters as a live event, ignoreProcesses included, where
+// the owning process can be resolved.
 func (m *SessionMonitor) Seed() error {
 	ports, err := GetListeningPorts()
 	if err != nil {
@@ -567,6 +577,7 @@ func (m *SessionMonitor) Seed() error {
 	for _, p := range ports {
 		m.handlePortEvent(PortEvent{
 			Type:      PortOpened,
+			PID:       p.PID,
 			Port:      p.Port,
 			Protocol:  p.Protocol,
 			BindAddr:  p.BindAddr,

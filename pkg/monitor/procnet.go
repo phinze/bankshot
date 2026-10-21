@@ -18,6 +18,8 @@ type Port struct {
 	Protocol string // "tcp" or "tcp6"
 	State    string // Connection state
 	BindAddr string // Bind address (e.g. "0.0.0.0", "127.0.0.1", "::1")
+	Inode    uint64 // Socket inode, from procfs; 0 where unknown
+	PID      int    // Owning process, where it could be resolved; 0 otherwise
 }
 
 // parseProcNet parses /proc/net/tcp or /proc/net/tcp6 files
@@ -68,16 +70,66 @@ func parseProcNet(path string, protocol string) ([]Port, error) {
 
 		// We're only interested in LISTEN state for port forwarding
 		if state == "LISTEN" {
+			var inode uint64
+			if len(fields) > 9 {
+				inode, _ = strconv.ParseUint(fields[9], 10, 64)
+			}
 			ports = append(ports, Port{
 				Port:     int(portNum),
 				Protocol: protocol,
 				State:    state,
 				BindAddr: bindAddr,
+				Inode:    inode,
 			})
 		}
 	}
 
 	return ports, scanner.Err()
+}
+
+// resolvePortOwners fills in PID for each port whose socket inode some
+// process under procRoot holds open. It walks every /proc/PID/fd, so it's for
+// occasional scans, not per-event use. Processes it can't read (gone, or
+// another user's without CAP_DAC_READ_SEARCH) are skipped.
+func resolvePortOwners(procRoot string, ports []Port) {
+	want := make(map[string][]int) // "socket:[inode]" -> indexes into ports
+	for i, p := range ports {
+		if p.Inode != 0 {
+			link := fmt.Sprintf("socket:[%d]", p.Inode)
+			want[link] = append(want[link], i)
+		}
+	}
+	if len(want) == 0 {
+		return
+	}
+	procs, err := os.ReadDir(procRoot)
+	if err != nil {
+		return
+	}
+	for _, proc := range procs {
+		pid, err := strconv.Atoi(proc.Name())
+		if err != nil {
+			continue
+		}
+		fdDir := filepath.Join(procRoot, proc.Name(), "fd")
+		fds, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue
+		}
+		for _, fd := range fds {
+			link, err := os.Readlink(filepath.Join(fdDir, fd.Name()))
+			if err != nil {
+				continue
+			}
+			for _, i := range want[link] {
+				ports[i].PID = pid
+			}
+			delete(want, link)
+			if len(want) == 0 {
+				return
+			}
+		}
+	}
 }
 
 // parseState converts hex state to readable string

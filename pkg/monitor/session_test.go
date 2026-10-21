@@ -533,3 +533,23 @@ func TestSyncRetriesPortsThatFailedWhileDaemonDown(t *testing.T) {
 		t.Error("port 5000 not active after a successful sync")
 	}
 }
+
+func TestIgnoresProcess(t *testing.T) {
+	sm, _ := NewSessionMonitor(SessionConfig{
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		IgnoreProcesses: []string{"postgres"},
+		PortEventSource: &mockPortEventSource{},
+	})
+	sm.resolveProcessName = func(pid int) string { return map[int]string{10: "postgres", 20: "node"}[pid] }
+	sm.resolveParentPID = func(int) int { return 0 }
+
+	if ignored, _ := sm.IgnoresProcess(10); !ignored {
+		t.Error("postgres not ignored")
+	}
+	if ignored, _ := sm.IgnoresProcess(20); ignored {
+		t.Error("node ignored")
+	}
+	if ignored, _ := sm.IgnoresProcess(0); ignored {
+		t.Error("an unresolved owner was ignored")
+	}
+}

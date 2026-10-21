@@ -206,15 +206,8 @@ func (m *SystemMonitor) processPendingPorts() {
 	}
 }
 
-// findPortOwner attempts to find which process owns a port by checking socket inodes
-// This is best-effort and may return 0 if the owner can't be determined
+// findPortOwner returns the process that owns a port, or 0 if it couldn't be
+// resolved. GetListeningPorts resolves owners on Linux.
 func (m *SystemMonitor) findPortOwner(port Port) int {
-	// This is a simplified implementation - we'd need to:
-	// 1. Get the socket inode from /proc/net/tcp for this port
-	// 2. Search /proc/*/fd/* for a socket with that inode
-	// For now, return 0 (unknown) since we don't strictly need the PID
-	// The important part is detecting the port open/close
-
-	// TODO: Implement proper inode matching if PID is needed for filtering
-	return 0
+	return port.PID
 }

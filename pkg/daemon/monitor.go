@@ -96,7 +96,7 @@ func (d *Monitor) Start(ctx context.Context) error {
 	// Parse monitor config from main config
 	var portRanges []monitor.PortRange // nil = forward all non-privileged ports (>= 1024)
 	ignorePorts := d.config.Monitor.IgnorePorts
-	ignoreProcesses := []string{"sshd", "systemd", "ssh-agent", "/\\.test$/"}
+	ignoreProcesses := d.ignoreProcesses()
 	pollInterval := 5 * time.Second // Default to 5s for reasonable CPU usage
 	gracePeriod := 30 * time.Second
 	batchWindow := 500 * time.Millisecond // Coalesce a burst of newly-opened ports
@@ -107,9 +107,6 @@ func (d *Monitor) Start(ctx context.Context) error {
 		for i, pr := range d.config.Monitor.PortRanges {
 			portRanges[i] = monitor.PortRange{Start: pr.Start, End: pr.End}
 		}
-	}
-	if len(d.config.Monitor.IgnoreProcesses) > 0 {
-		ignoreProcesses = d.config.Monitor.IgnoreProcesses
 	}
 	if d.config.Monitor.PollInterval != "" {
 		if duration, err := time.ParseDuration(d.config.Monitor.PollInterval); err == nil {
@@ -267,6 +264,14 @@ func (d *Monitor) heartbeatLoop(ctx context.Context) {
 		d.socketReachable = true
 		next = interval
 	}
+}
+
+// ignoreProcesses returns the configured process ignore list, or the default.
+func (d *Monitor) ignoreProcesses() []string {
+	if len(d.config.Monitor.IgnoreProcesses) > 0 {
+		return d.config.Monitor.IgnoreProcesses
+	}
+	return []string{"sshd", "systemd", "ssh-agent", "/\\.test$/"}
 }
 
 // localDaemonClient implements DaemonClient for sending requests to local daemon
@@ -496,12 +501,25 @@ func (d *Monitor) Reconcile() error {
 		allVMListening[port.Port] = true
 	}
 
-	// Build set of VM ports that should be auto-forwarded
+	// Build set of VM ports that should be auto-forwarded, screening owners
+	// against ignoreProcesses the way live port events are.
+	filter, err := monitor.NewSessionMonitor(monitor.SessionConfig{
+		IgnoreProcesses: d.ignoreProcesses(),
+		Logger:          d.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to build process filter: %w", err)
+	}
 	vmListeningInRange := make(map[int]bool)
 	for _, port := range vmPorts {
-		if monitor.ShouldForwardPort(port.Port, port.BindAddr, portRanges, ignorePortsMap) {
-			vmListeningInRange[port.Port] = true
+		if !monitor.ShouldForwardPort(port.Port, port.BindAddr, portRanges, ignorePortsMap) {
+			continue
 		}
+		if ignored, name := filter.IgnoresProcess(port.PID); ignored {
+			d.logger.Debug("Not reconciling port from excluded process", "port", port.Port, "process", name)
+			continue
+		}
+		vmListeningInRange[port.Port] = true
 	}
 
 	d.logger.Debug("VM ports listening",
