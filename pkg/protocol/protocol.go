@@ -28,6 +28,10 @@ const (
 	CommandReconcile CommandType = "reconcile"
 	// CommandOpProxy proxies 1Password CLI requests to the local machine
 	CommandOpProxy CommandType = "op-proxy"
+	// CommandSync declares the full set of ports a monitor wants forwarded
+	// over the tailnet. The daemon converges to it, and the request renews
+	// the monitor's lease: a host that stops syncing loses its forwards.
+	CommandSync CommandType = "sync"
 )
 
 // Request represents a command request from client to daemon
@@ -138,6 +142,35 @@ type OpProxyResponse struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
+}
+
+// SyncRequest is the payload of CommandSync. The caller's tailnet identity,
+// not anything in the payload, decides which host the forwards belong to.
+type SyncRequest struct {
+	Forwards []BatchForwardPort `json:"forwards"`
+}
+
+// SyncResponse reports the outcome of every port in a SyncRequest and how
+// long the lease it renewed lasts.
+type SyncResponse struct {
+	Results      []BatchForwardResult `json:"results"`
+	LeaseSeconds int                  `json:"lease_seconds"`
+}
+
+// RelayRequest is the first line the daemon sends on a tailnet relay
+// connection, naming the port on the monitor's host to reach.
+type RelayRequest struct {
+	Port int `json:"port"`
+}
+
+// RelayResponse is the monitor relay's one-line answer to a RelayRequest.
+// After an OK response the connection carries the forwarded bytes.
+type RelayResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	// NotForwarded means the relay isn't forwarding the port at all, as
+	// opposed to failing to reach it, so the daemon should drop the forward.
+	NotForwarded bool `json:"not_forwarded,omitempty"`
 }
 
 // ParseRequest parses a JSON request

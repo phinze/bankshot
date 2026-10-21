@@ -24,11 +24,15 @@ type Forwarder interface {
 // Target names the remote end a set of forwards comes from.
 type Target struct {
 	// ConnectionInfo identifies the remote machine. For SSH it's the host
-	// alias the ControlMaster was opened with.
+	// alias the ControlMaster was opened with; for the tailnet it's the
+	// node name tailscale whois reported for the caller.
 	ConnectionInfo string
 	// SocketPath is the SSH control socket, resolved from ConnectionInfo
 	// when empty. Other transports ignore it.
 	SocketPath string
+	// Address is where the tailnet transport reaches the remote: the
+	// caller's tailnet IP. SSH ignores it.
+	Address string
 }
 
 // Port is one requested forward.
