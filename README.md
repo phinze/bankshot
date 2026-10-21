@@ -182,7 +182,8 @@ $ bankshot forward 8080:9090
 
 ### Daemon Configuration
 
-Optional config file at `~/.config/bankshot/config.yaml`:
+Optional config file at `~/.config/bankshot/config.yaml`, or wherever
+`BANKSHOT_CONFIG` points (`bankshotd --config` takes precedence over both):
 
 ```yaml
 network: unix                    # or "tcp"

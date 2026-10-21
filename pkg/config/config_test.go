@@ -218,3 +218,25 @@ func TestValidateLogLevels(t *testing.T) {
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && s[:len(substr)] == substr
 }
+
+func TestLoadFromEnv(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no ~/.config/bankshot/config.yaml to fall back on
+	path := filepath.Join(t.TempDir(), "bankshot-config.yaml")
+	if err := os.WriteFile(path, []byte("log_level: debug\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvConfigPath, path)
+
+	cfg, err := Load("")
+	if err != nil || cfg.LogLevel != "debug" {
+		t.Fatalf("Load(\"\") with %s set = %+v, %v; want log_level debug", EnvConfigPath, cfg, err)
+	}
+
+	explicit := filepath.Join(t.TempDir(), "other.yaml")
+	if err := os.WriteFile(explicit, []byte("log_level: warn\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _ := Load(explicit); cfg.LogLevel != "warn" {
+		t.Errorf("an explicit path lost to %s: log_level %q", EnvConfigPath, cfg.LogLevel)
+	}
+}

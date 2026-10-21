@@ -126,9 +126,18 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Load loads configuration from file
+// EnvConfigPath names the environment variable that points bankshot at a
+// config file. The nix modules set it on the services they define.
+const EnvConfigPath = "BANKSHOT_CONFIG"
+
+// Load loads configuration from path. With no path it uses $BANKSHOT_CONFIG,
+// then ~/.config/bankshot/config.yaml, then the defaults.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
+
+	if path == "" {
+		path = os.Getenv(EnvConfigPath)
+	}
 
 	// If no path specified, try default locations
 	if path == "" {
