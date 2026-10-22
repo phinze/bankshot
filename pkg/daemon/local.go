@@ -157,6 +157,29 @@ func (d *Monitor) handleLocal(conn net.Conn, pid int, client *localDaemonClient)
 		}
 		resp.ID = callerID
 		reply(resp)
+	case protocol.CommandForward:
+		var fwd protocol.ForwardRequest
+		if err := json.Unmarshal(req.Payload, &fwd); err != nil {
+			reply(protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid forward request format: %w", err)))
+			return
+		}
+		if fwd.Host != "" && fwd.Host != "localhost" && fwd.Host != "127.0.0.1" {
+			reply(protocol.NewErrorResponse(req.ID, fmt.Errorf("tailnet forwards reach only this host's loopback, not %s", fwd.Host)))
+			return
+		}
+		holder := 0
+		if fwd.UntilExit {
+			holder = pid
+		}
+		d.logger.Info("Manual forward", "port", fwd.RemotePort, "local", fwd.LocalPort, "origin", monitor.DescribeOrigin(pid).String())
+		replyResult(reply, req.ID, d.sessionMonitor.Pin(fwd.RemotePort, fwd.LocalPort, holder))
+	case protocol.CommandUnforward:
+		var unfwd protocol.UnforwardRequest
+		if err := json.Unmarshal(req.Payload, &unfwd); err != nil {
+			reply(protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid unforward request format: %w", err)))
+			return
+		}
+		replyResult(reply, req.ID, d.sessionMonitor.Unpin(unfwd.RemotePort))
 	case protocol.CommandStatus, protocol.CommandList:
 		resp, err := client.SendRequest(req)
 		if err != nil {
@@ -167,4 +190,14 @@ func (d *Monitor) handleLocal(conn net.Conn, pid int, client *localDaemonClient)
 	default:
 		reply(protocol.NewErrorResponse(req.ID, fmt.Errorf("%s isn't available on a tailnet host yet", req.Type)))
 	}
+}
+
+// replyResult replies to request id with success, or with err if it failed.
+func replyResult(reply func(*protocol.Response), id string, err error) {
+	if err != nil {
+		reply(protocol.NewErrorResponse(id, err))
+		return
+	}
+	resp, _ := protocol.NewSuccessResponse(id, nil)
+	reply(resp)
 }

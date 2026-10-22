@@ -39,19 +39,29 @@ type SessionMonitor struct {
 	logger             *slog.Logger
 	portRanges         []PortRange
 	ignorePorts        map[int]bool
-	ignoreProcesses    []string          // raw config (for logging)
-	processMatchers    []processMatcher  // compiled matchers
+	ignoreProcesses    []string             // raw config (for logging)
+	processMatchers    []processMatcher     // compiled matchers
 	resolveProcessName func(pid int) string // defaults to ResolveProcessName
 	resolveProcessCwd  func(pid int) string // defaults to ResolveProcessCwd
 	resolveParentPID   func(pid int) int    // defaults to ResolveParentPID
+	resolveStartTime   func(pid int) string // defaults to ResolveStartTime
 	gracePeriod        time.Duration
 	activeForwards     map[string]ForwardInfo // key: "port" (PID not needed)
 	wanted             map[string]PortEvent   // key: "port"; every open port that passed the filters, forwarded or not
+	pinned             map[int]pin            // key: remote port; manual forwards
 	pendingRemovals    map[string]time.Time   // forwards pending removal
 	batchWindow        time.Duration          // coalesce newly-opened ports for this long before forwarding
 	pendingBatch       map[int]PortEvent      // ports awaiting the next batch flush, keyed by port
 	batchTimer         *time.Timer            // fires batchWindow after the first port in the current batch
 	mutex              sync.RWMutex
+}
+
+// pin is a manual forward, asked for with bankshot forward or wrap. It skips
+// the port filters and holds whether or not anything listens on the port yet.
+type pin struct {
+	localPort   int
+	holder      int    // pid whose exit drops the pin; 0 holds it until unpinned
+	holderStart string // holder's start time, so a reused pid doesn't keep it
 }
 
 // PortRange defines a range of ports to auto-forward
@@ -125,10 +135,12 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 		resolveProcessName: ResolveProcessName,
 		resolveProcessCwd:  ResolveProcessCwd,
 		resolveParentPID:   ResolveParentPID,
+		resolveStartTime:   ResolveStartTime,
 		gracePeriod:        cfg.GracePeriod,
 		batchWindow:        cfg.BatchWindow,
 		activeForwards:     make(map[string]ForwardInfo),
 		wanted:             make(map[string]PortEvent),
+		pinned:             make(map[int]pin),
 		pendingRemovals:    make(map[string]time.Time),
 		pendingBatch:       make(map[int]PortEvent),
 	}, nil
@@ -231,6 +243,11 @@ func (m *SessionMonitor) handlePortOpened(key string, event PortEvent) {
 		// Fall through to re-enqueue: forwarding is idempotent, so this
 		// re-establishes the forward if the daemon lost its state.
 	} else if _, exists := m.activeForwards[key]; exists {
+		m.mutex.Unlock()
+		return
+	}
+	if _, pinned := m.pinned[event.Port]; pinned {
+		// The manual forward already carries this port.
 		m.mutex.Unlock()
 		return
 	}
@@ -409,6 +426,7 @@ func (m *SessionMonitor) cleanupLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			m.cleanupPendingRemovals()
+			m.reapPins()
 		}
 	}
 }
@@ -423,7 +441,9 @@ func (m *SessionMonitor) cleanupPendingRemovals() {
 		if now.Sub(pendingSince) >= m.gracePeriod {
 			// Time to remove the forward
 			if fwd, exists := m.activeForwards[key]; exists {
-				m.removeForward(fwd)
+				if _, pinned := m.pinned[fwd.Port]; !pinned {
+					m.removeForward(fwd)
+				}
 				delete(m.activeForwards, key)
 			}
 			delete(m.wanted, key)
@@ -434,35 +454,162 @@ func (m *SessionMonitor) cleanupPendingRemovals() {
 
 // removeForward removes a port forward
 func (m *SessionMonitor) removeForward(fwd ForwardInfo) {
-	req := &protocol.Request{
-		ID:   uuid.New().String(),
-		Type: protocol.CommandUnforward,
-	}
-
-	payload := protocol.UnforwardRequest{
-		RemotePort:     fwd.Port,
-		Host:           "localhost",
-		ConnectionInfo: m.sessionID, // sessionID is now the hostname for SSH connection matching
-	}
-
-	payloadBytes, _ := json.Marshal(payload)
-	req.Payload = payloadBytes
-
 	m.logger.Info("Removing auto-forward",
 		"port", fwd.Port)
 
-	resp, err := m.daemonClient.SendRequest(req)
-	if err != nil {
+	if err := m.unforward(fwd.Port); err != nil {
 		m.logger.Error("Failed to remove forward",
 			"error", err,
 			"port", fwd.Port)
-		return
+	}
+}
+
+// unforward asks the daemon to drop its forward of port.
+func (m *SessionMonitor) unforward(port int) error {
+	payload, _ := json.Marshal(protocol.UnforwardRequest{
+		RemotePort:     port,
+		Host:           "localhost",
+		ConnectionInfo: m.sessionID, // sessionID is now the hostname for SSH connection matching
+	})
+	return m.send(&protocol.Request{ID: uuid.New().String(), Type: protocol.CommandUnforward, Payload: payload})
+}
+
+// send passes req to the daemon and turns a refusal into an error.
+func (m *SessionMonitor) send(req *protocol.Request) error {
+	resp, err := m.daemonClient.SendRequest(req)
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("%s", resp.Error)
+	}
+	return nil
+}
+
+// Pin forwards port to localPort on the user's say-so, past the port filters
+// and whether or not anything listens on it yet. A nonzero holder ties the
+// forward to that process, and it's dropped when the process exits.
+func (m *SessionMonitor) Pin(port, localPort, holder int) error {
+	if localPort == 0 {
+		localPort = port
+	}
+	p := pin{localPort: localPort}
+	if holder != 0 {
+		p.holder = holder
+		p.holderStart = m.resolveStartTime(holder)
+		if p.holderStart == "" {
+			return fmt.Errorf("process %d isn't running", holder)
+		}
 	}
 
-	if !resp.Success {
-		m.logger.Error("Unforward request failed",
-			"error", resp.Error,
-			"port", fwd.Port)
+	m.mutex.Lock()
+	prev, had := m.pinned[port]
+	if had && prev.holder == 0 && prev.localPort == localPort {
+		// Already held until unpinned; a process asking too doesn't
+		// shorten that.
+		p = prev
+	}
+	m.pinned[port] = p
+	key := fmt.Sprintf("%d", port)
+	auto, moved := m.activeForwards[key]
+	moved = moved && localPort != port
+	if moved {
+		delete(m.activeForwards, key)
+	}
+	m.mutex.Unlock()
+
+	if moved {
+		// The pin puts an auto-forwarded port on another local port;
+		// sync wouldn't drop the old one, since the port is still declared.
+		m.removeForward(auto)
+	}
+	payload, _ := json.Marshal(protocol.ForwardRequest{
+		RemotePort:     port,
+		LocalPort:      localPort,
+		Host:           "localhost",
+		ConnectionInfo: m.sessionID,
+	})
+	err := m.send(&protocol.Request{ID: uuid.New().String(), Type: protocol.CommandForward, Payload: payload})
+	if err != nil {
+		m.mutex.Lock()
+		if m.pinned[port] == p {
+			if had {
+				m.pinned[port] = prev
+			} else {
+				delete(m.pinned, port)
+			}
+		}
+		m.mutex.Unlock()
+		return err
+	}
+	m.logger.Info("Pinned manual forward", "port", port, "local", localPort, "holder", holder)
+	return nil
+}
+
+// Unpin drops the manual forward of port. A port the monitor forwards on its
+// own stays forwarded; ignorePorts is the way to stop one of those.
+func (m *SessionMonitor) Unpin(port int) error {
+	return m.unpin(port, func(pin) bool { return true })
+}
+
+// unpin drops the manual forward of port if match accepts it.
+func (m *SessionMonitor) unpin(port int, match func(pin) bool) error {
+	key := fmt.Sprintf("%d", port)
+	m.mutex.Lock()
+	p, pinned := m.pinned[port]
+	event, wanted := m.wanted[key]
+	if pinned && !match(p) {
+		m.mutex.Unlock()
+		return nil
+	}
+	if !pinned && wanted {
+		m.mutex.Unlock()
+		return fmt.Errorf("port %d is forwarded automatically; add it to monitor.ignorePorts to stop that", port)
+	}
+	delete(m.pinned, port)
+	if wanted && p.localPort == port {
+		// The auto-forward is the same forward, so the daemon keeps it.
+		m.mutex.Unlock()
+		m.logger.Info("Unpinned manual forward; still forwarded automatically", "port", port)
+		return nil
+	}
+	m.mutex.Unlock()
+
+	err := m.unforward(port)
+	if wanted {
+		// The pin had moved this port to another local port; put the
+		// auto-forward back on its own.
+		m.mutex.Lock()
+		delete(m.activeForwards, key)
+		m.enqueueForwardLocked(event)
+		immediate := m.batchWindow <= 0
+		m.mutex.Unlock()
+		if immediate {
+			m.flushBatch()
+		}
+	}
+	if err == nil {
+		m.logger.Info("Unpinned manual forward", "port", port)
+	}
+	return err
+}
+
+// reapPins drops manual forwards whose holding process has exited.
+func (m *SessionMonitor) reapPins() {
+	m.mutex.RLock()
+	stale := make(map[int]pin)
+	for port, p := range m.pinned {
+		if p.holder != 0 && m.resolveStartTime(p.holder) != p.holderStart {
+			stale[port] = p
+		}
+	}
+	m.mutex.RUnlock()
+
+	for port, p := range stale {
+		m.logger.Info("Dropping manual forward; its process exited", "port", port, "holder", p.holder)
+		if err := m.unpin(port, func(cur pin) bool { return cur == p }); err != nil {
+			m.logger.Warn("Failed to drop manual forward", "port", port, "error", err)
+		}
 	}
 }
 
@@ -556,9 +703,15 @@ func (m *SessionMonitor) cleanup() error {
 	for _, fwd := range m.activeForwards {
 		m.removeForward(fwd)
 	}
+	for port := range m.pinned {
+		if _, active := m.activeForwards[fmt.Sprintf("%d", port)]; !active {
+			_ = m.unforward(port)
+		}
+	}
 
 	m.activeForwards = make(map[string]ForwardInfo)
 	m.wanted = make(map[string]PortEvent)
+	m.pinned = make(map[int]pin)
 	m.pendingRemovals = make(map[string]time.Time)
 
 	return nil
@@ -587,30 +740,28 @@ func (m *SessionMonitor) Seed() error {
 	return nil
 }
 
-// Forwarding reports whether port is open and meant to be forwarded. The
-// tailnet relay reaches only these ports.
+// Forwarding reports whether port is meant to be forwarded: open and
+// passing the filters, or pinned by hand. The tailnet relay reaches only
+// these ports.
 func (m *SessionMonitor) Forwarding(port int) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	_, ok := m.wanted[fmt.Sprintf("%d", port)]
-	return ok
+	_, wanted := m.wanted[fmt.Sprintf("%d", port)]
+	_, pinned := m.pinned[port]
+	return wanted || pinned
 }
 
-// Sync declares every wanted port to the daemon in one sync request, which
+// Sync declares every wanted and pinned port to the daemon in one sync request, which
 // converges the daemon to that set and renews this host's tailnet lease.
 // Ports that failed to forward earlier, say while the daemon was asleep, get
 // another try each time. It returns the lease the daemon granted.
 func (m *SessionMonitor) Sync() (time.Duration, error) {
 	m.mutex.RLock()
-	events := make([]PortEvent, 0, len(m.wanted))
+	ports := make([]protocol.BatchForwardPort, 0, len(m.wanted)+len(m.pinned))
 	for _, e := range m.wanted {
-		events = append(events, e)
-	}
-	m.mutex.RUnlock()
-	sort.Slice(events, func(i, j int) bool { return events[i].Port < events[j].Port })
-
-	ports := make([]protocol.BatchForwardPort, 0, len(events))
-	for _, e := range events {
+		if _, pinned := m.pinned[e.Port]; pinned {
+			continue
+		}
 		ports = append(ports, protocol.BatchForwardPort{
 			RemotePort:  e.Port,
 			LocalPort:   e.Port,
@@ -619,6 +770,11 @@ func (m *SessionMonitor) Sync() (time.Duration, error) {
 			ProcessCwd:  e.ProcessCwd,
 		})
 	}
+	for port, p := range m.pinned {
+		ports = append(ports, protocol.BatchForwardPort{RemotePort: port, LocalPort: p.localPort, Host: "localhost"})
+	}
+	m.mutex.RUnlock()
+	sort.Slice(ports, func(i, j int) bool { return ports[i].RemotePort < ports[j].RemotePort })
 	payload, _ := json.Marshal(protocol.SyncRequest{Forwards: ports})
 	req := &protocol.Request{ID: uuid.New().String(), Type: protocol.CommandSync, Payload: payload}
 
@@ -667,6 +823,7 @@ func (m *SessionMonitor) GetStatus() map[string]interface{} {
 	return map[string]interface{}{
 		"sessionID":       m.sessionID,
 		"activeForwards":  len(m.activeForwards),
+		"pinnedForwards":  len(m.pinned),
 		"pendingRemovals": len(m.pendingRemovals),
 	}
 }

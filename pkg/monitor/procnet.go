@@ -269,6 +269,28 @@ func ResolveParentPID(pid int) int {
 	return 0
 }
 
+// ResolveStartTime returns when pid started, in clock ticks since boot, or ""
+// if it isn't running. Together with the pid it names one process, since
+// pids get reused.
+func ResolveStartTime(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return ""
+	}
+	// comm (field 2) can hold spaces and parens; the fields after the last
+	// ')' are fixed, starting with state (field 3).
+	s := string(data)
+	i := strings.LastIndexByte(s, ')')
+	if i < 0 {
+		return ""
+	}
+	fields := strings.Fields(s[i+1:])
+	if len(fields) < 20 {
+		return ""
+	}
+	return fields[19] // starttime, field 22
+}
+
 // ResolveProcessCwd reads /proc/<pid>/cwd symlink and returns the working directory.
 // Returns empty string if the process is gone or unreadable.
 func ResolveProcessCwd(pid int) string {

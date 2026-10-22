@@ -234,6 +234,7 @@ func createForwardRequest(remotePort, localPort int, connectionInfo string) prot
 		LocalPort:      localPort,
 		Host:           "localhost",
 		ConnectionInfo: connectionInfo,
+		UntilExit:      true,
 	}
 
 	payload, _ := json.Marshal(forwardReq)

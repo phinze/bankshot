@@ -101,13 +101,14 @@ type OpenRequest struct {
 
 // ForwardRequest represents a request to forward a port
 type ForwardRequest struct {
-	RemotePort     int    `json:"remote_port"`              // Port on remote machine
-	LocalPort      int    `json:"local_port,omitempty"`     // Port on local machine (0 = same as remote)
-	Host           string `json:"host,omitempty"`           // Remote host (default: localhost)
-	ConnectionInfo string `json:"connection_info"`          // SSH connection identifier (hostname, user@host, etc.)
-	SocketPath     string `json:"socket_path,omitempty"`    // Optional: specific socket path
-	ProcessName    string `json:"process_name,omitempty"`   // Name of the process that opened the port
-	ProcessCwd     string `json:"process_cwd,omitempty"`    // Working directory of the process
+	RemotePort     int    `json:"remote_port"`            // Port on remote machine
+	LocalPort      int    `json:"local_port,omitempty"`   // Port on local machine (0 = same as remote)
+	Host           string `json:"host,omitempty"`         // Remote host (default: localhost)
+	ConnectionInfo string `json:"connection_info"`        // SSH connection identifier (hostname, user@host, etc.)
+	SocketPath     string `json:"socket_path,omitempty"`  // Optional: specific socket path
+	ProcessName    string `json:"process_name,omitempty"` // Name of the process that opened the port
+	ProcessCwd     string `json:"process_cwd,omitempty"`  // Working directory of the process
+	UntilExit      bool   `json:"until_exit,omitempty"`   // Over the tailnet: drop the forward when the requesting process exits
 }
 
 // BatchForwardRequest represents a request to forward several ports at once
