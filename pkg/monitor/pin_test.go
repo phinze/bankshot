@@ -217,3 +217,22 @@ func TestPinRolledBackWhenDaemonFails(t *testing.T) {
 		t.Error("failed pin left the port forwarding")
 	}
 }
+
+func TestUnpinHandsOverAPortThatOpenedWhilePinned(t *testing.T) {
+	client := &mockDaemonClient{}
+	sm := newPinTestMonitor(client, nil)
+
+	if err := sm.Pin(5000, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	sm.handlePortEvent(PortEvent{Type: PortOpened, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
+	if err := sm.Unpin(5000); err != nil {
+		t.Fatal(err)
+	}
+	sm.handlePortEvent(PortEvent{Type: PortClosed, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
+	sm.cleanupPendingRemovals()
+
+	if n := len(client.requestsOfType(protocol.CommandUnforward)); n != 1 {
+		t.Errorf("sent %d unforwards once the auto-forward's port closed, want 1", n)
+	}
+}

@@ -568,7 +568,16 @@ func (m *SessionMonitor) unpin(port int, match func(pin) bool) error {
 	}
 	delete(m.pinned, port)
 	if wanted && p.localPort == port {
-		// The auto-forward is the same forward, so the daemon keeps it.
+		// The auto-forward is the same forward, so the daemon keeps it,
+		// now owned as an auto-forward and removed when the port closes.
+		if _, active := m.activeForwards[key]; !active {
+			m.activeForwards[key] = ForwardInfo{
+				PID:         event.PID,
+				Port:        port,
+				ProcessName: event.ProcessName,
+				CreatedAt:   time.Now(),
+			}
+		}
 		m.mutex.Unlock()
 		m.logger.Info("Unpinned manual forward; still forwarded automatically", "port", port)
 		return nil
