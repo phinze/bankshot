@@ -381,7 +381,7 @@ func (m *SessionMonitor) handlePortClosed(key string, event PortEvent) {
 	if err == nil {
 		for _, p := range ports {
 			if p.Port == event.Port {
-				m.logger.Info("Ignoring stale PortClosed — port still listening",
+				m.logger.Debug("Ignoring stale PortClosed, port still listening",
 					"port", event.Port,
 					"protocol", event.Protocol)
 				return

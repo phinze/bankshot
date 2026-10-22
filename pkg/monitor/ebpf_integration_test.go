@@ -64,6 +64,57 @@ func TestEBPFMonitorEvents(t *testing.T) {
 	t.Logf("got PortClosed: port=%d pid=%d", evt.Port, evt.PID)
 }
 
+// Connections accepted on a listener that stays open must not read as the
+// port closing: each accepted socket starts as a copy of the listener, so the
+// kernel reports it moving out of LISTEN.
+func TestEBPFMonitorIgnoresAcceptedConnections(t *testing.T) {
+	if err := probeEBPF(); err != nil {
+		t.Skipf("eBPF not available: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+	mon := newEBPFMonitor(logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := mon.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	drainEvents(t, mon.Events(), 500*time.Millisecond)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	if waitForEvent(t, mon.Events(), port, PortOpened, 2*time.Second) == nil {
+		t.Fatalf("timed out waiting for PortOpened on port %d", port)
+	}
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		conn, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatalf("dial %d: %v", i, err)
+		}
+		conn.Close()
+	}
+
+	if evt := waitForEvent(t, mon.Events(), port, PortClosed, time.Second); evt != nil {
+		t.Fatalf("got PortClosed for port %d while it was still listening", port)
+	}
+}
+
 func TestEBPFMonitorCompileTimeCheck(t *testing.T) {
 	var _ PortEventSource = (*ebpfMonitor)(nil)
 }

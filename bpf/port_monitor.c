@@ -32,6 +32,7 @@ struct {
 } events SEC(".maps");
 
 // TCP states we care about
+#define TCP_CLOSE 7
 #define TCP_LISTEN 10
 
 // Tracepoint context for sock/inet_sock_set_state.
@@ -72,8 +73,12 @@ int trace_inet_sock_set_state(struct inet_sock_set_state_args *ctx) {
 	__s32 old_state = ctx->oldstate;
 	__s32 new_state = ctx->newstate;
 
-	// Only care about transitions involving TCP_LISTEN
-	if (old_state != TCP_LISTEN && new_state != TCP_LISTEN)
+	// Only care about a listener opening or closing. A socket accepted from
+	// a listener starts as a copy of it, so each accepted connection also
+	// shows up as LISTEN -> SYN_RECV; skipping those keeps connection churn
+	// on a busy port out of userspace.
+	if (new_state != TCP_LISTEN &&
+	    !(old_state == TCP_LISTEN && new_state == TCP_CLOSE))
 		return 0;
 
 	__u64 pid_tgid = bpf_get_current_pid_tgid();

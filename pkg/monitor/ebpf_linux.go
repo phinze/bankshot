@@ -16,7 +16,10 @@ import (
 	"github.com/phinze/bankshot/pkg/monitor/portbpf"
 )
 
-const tcpListen = 10
+const (
+	tcpClose  = 7
+	tcpListen = 10
+)
 
 // ebpfMonitor uses eBPF tracepoint/sock/inet_sock_set_state for instant
 // edge-triggered port events. It implements PortEventSource.
@@ -150,7 +153,9 @@ func (m *ebpfMonitor) readLoop(ctx context.Context, reader *perf.Reader, tp link
 		switch {
 		case newState == tcpListen:
 			evtType = PortOpened
-		case oldState == tcpListen:
+		case oldState == tcpListen && newState == tcpClose:
+			// LISTEN -> anything else is an accepted connection, not
+			// the listener closing.
 			evtType = PortClosed
 		default:
 			continue
