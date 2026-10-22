@@ -140,7 +140,7 @@ func (d *Monitor) handleLocal(conn net.Conn, pid int, client *localDaemonClient)
 	}
 
 	switch req.Type {
-	case protocol.CommandOpen, protocol.CommandOpProxy:
+	case protocol.CommandOpen, protocol.CommandOpProxy, protocol.CommandClipboard:
 		// A fresh ID only this monitor knows, held in flight while the
 		// daemon asks the relay to vouch for it.
 		callerID := req.ID

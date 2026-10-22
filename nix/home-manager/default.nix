@@ -96,6 +96,17 @@ in {
       '';
     };
 
+    enableWlPaste = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Whether to create a wl-paste symlink pointing to bankshot.
+        This lets tools that read clipboard images with wl-paste (Claude
+        Code's image paste on Linux) get the image on the local machine's
+        clipboard. Only images are served, never text.
+      '';
+    };
+
     opProxy = {
       enabled = mkOption {
         type = types.bool;
@@ -272,6 +283,10 @@ in {
       ++ lib.optional cfg.enableOpProxy (pkgs.runCommand "bankshot-op-proxy" {} ''
         mkdir -p $out/bin
         ln -s ${cfg.package}/bin/bankshot $out/bin/op
+      '')
+      ++ lib.optional cfg.enableWlPaste (pkgs.runCommand "bankshot-wl-paste" {} ''
+        mkdir -p $out/bin
+        ln -s ${cfg.package}/bin/bankshot $out/bin/wl-paste
       '');
 
     # Install and code-sign the notification helper app bundle.

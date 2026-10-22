@@ -36,6 +36,9 @@ const (
 	// over the tailnet. The daemon converges to it, and the request renews
 	// the monitor's lease: a host that stops syncing loses its forwards.
 	CommandSync CommandType = "sync"
+	// CommandClipboard asks for the image on the daemon machine's clipboard,
+	// so a screenshot taken there can be pasted on the remote host.
+	CommandClipboard CommandType = "clipboard"
 )
 
 // Request represents a command request from client to daemon
@@ -188,6 +191,20 @@ type OpProxyResponse struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
+}
+
+// ClipboardRequest is the payload of CommandClipboard. Peek only asks
+// whether there is an image, without moving its bytes or raising a toast.
+type ClipboardRequest struct {
+	Peek bool `json:"peek,omitempty"`
+}
+
+// ClipboardResponse answers a ClipboardRequest. Only images are ever sent,
+// as PNG; text stays on the clipboard, since that's where passwords live.
+// Data is empty for a peek or when there's no image.
+type ClipboardResponse struct {
+	Image bool   `json:"image"`
+	Data  []byte `json:"data,omitempty"`
 }
 
 // SyncRequest is the payload of CommandSync. The caller's tailnet identity,

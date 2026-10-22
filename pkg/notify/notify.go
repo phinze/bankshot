@@ -160,6 +160,19 @@ func (n *Notifier) NotifyAgent(origin, command string) {
 	n.send("--title", "ssh agent request", "--body", body)
 }
 
+// NotifyClipboard posts a notification that a remote caller took the
+// clipboard's image, naming it and the image's size.
+func (n *Notifier) NotifyClipboard(origin string, size int) {
+	if n.helperPath == "" {
+		return
+	}
+	body := fmt.Sprintf("%d KB image", (size+1023)/1024)
+	if origin != "" {
+		body = origin + "\n" + body
+	}
+	n.send("--title", "Clipboard image sent", "--body", body)
+}
+
 // NotifyForwardBusy posts a notification that a forward couldn't take its
 // local port, so the user knows why localhost:PORT isn't the remote service.
 func (n *Notifier) NotifyForwardBusy(connectionInfo string, remotePort int, err error) {

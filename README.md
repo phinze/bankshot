@@ -68,6 +68,9 @@ bankshot forward 8080
 # Auto-forward ports for a command
 bankshot wrap -- npm run dev
 
+# Save the screenshot on your local clipboard here, and print its path
+bankshot paste
+
 # Check status
 bankshot status
 ```
@@ -177,6 +180,18 @@ $ bankshot forward 3000
 # Forward to different local port
 $ bankshot forward 8080:9090
 ```
+
+### Pasting Screenshots
+
+`bankshot paste` fetches the image on your local machine's clipboard, saves it
+as a PNG in `~/.cache/bankshot/inbox` on the remote host, and prints the path.
+Images older than a week are cleared out on the next paste. Only images ever
+cross, never clipboard text, and the local machine posts a notification naming
+the caller each time one is sent.
+
+Run as `wl-paste` (the Home Manager module's `enableWlPaste`), bankshot answers
+the two calls Claude Code makes for its ctrl+v image paste on Linux, so pasting
+a screenshot into a remote Claude session just works.
 
 ## Configuration
 

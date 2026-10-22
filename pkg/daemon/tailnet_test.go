@@ -61,6 +61,16 @@ func TestTailnetPeerCommandGate(t *testing.T) {
 	if resp := open("vouched", nil); resp.Success {
 		t.Error("open without an origin succeeded")
 	}
+	d.clipboard = fakeClipboard{}
+	clip := request(t, protocol.CommandClipboard, protocol.ClipboardRequest{Peek: true})
+	clip.ID, clip.Origin = "forged", &protocol.Origin{}
+	if resp := d.handleCommand(clip, p); resp.Success {
+		t.Error("clipboard read the relay didn't vouch for succeeded")
+	}
+	clip.ID = "vouched"
+	if resp := d.handleCommand(clip, p); !resp.Success {
+		t.Errorf("vouched clipboard read refused: %s", resp.Error)
+	}
 	if resp := d.handleCommand(request(t, protocol.CommandReconcile, map[string]any{}), p); resp.Success {
 		t.Error("reconcile over the tailnet succeeded, want refused")
 	}

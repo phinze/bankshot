@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/phinze/bankshot/pkg/clipboard"
 	"github.com/phinze/bankshot/pkg/config"
 	"github.com/phinze/bankshot/pkg/forwarder"
 	"github.com/phinze/bankshot/pkg/notify"
@@ -46,6 +47,7 @@ type Daemon struct {
 	busy        map[string]bool // "node:port" forwards already reported busy
 	notifier    *notify.Notifier
 	opProxy     *opproxy.OpProxy
+	clipboard   clipboard.Reader
 	startTime   time.Time
 	systemdMode bool   // Running under systemd
 	pidFile     string // PID file path
@@ -65,6 +67,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		ssh:       ssh,
 		notifier:  notify.New(logger, cfg.NotifyCommand),
 		opProxy:   opproxy.New(&cfg.OpProxy, logger),
+		clipboard: clipboard.System{},
 		startTime: time.Now(),
 		busy:      make(map[string]bool),
 		verify:    tailnet.Verify,
@@ -335,8 +338,8 @@ func (d *Daemon) handleConnection(conn net.Conn, p *peer) {
 	d.logger.Debug("Connection closed", "remote", remoteAddr)
 }
 
-// handleCommand processes a command and returns a response. Open and
-// op-proxy act on this machine as the user, so a tailnet peer's request must
+// handleCommand processes a command and returns a response. Open,
+// op-proxy and clipboard act on this machine as the user, so a tailnet peer's request must
 // come through its monitor, which the peer's relay vouches for; anything else
 // on that host can reach this listener but can't get the relay to vouch.
 func (d *Daemon) handleCommand(req *protocol.Request, p *peer) *protocol.Response {
@@ -344,7 +347,7 @@ func (d *Daemon) handleCommand(req *protocol.Request, p *peer) *protocol.Respons
 		switch req.Type {
 		case protocol.CommandForward, protocol.CommandForwardBatch, protocol.CommandUnforward,
 			protocol.CommandSync, protocol.CommandStatus, protocol.CommandList:
-		case protocol.CommandOpen, protocol.CommandOpProxy:
+		case protocol.CommandOpen, protocol.CommandOpProxy, protocol.CommandClipboard:
 			if err := d.verifyPeerRequest(req, p); err != nil {
 				d.logger.Warn("Refused unvouched tailnet request", "type", req.Type, "node", p.node, "error", err)
 				return protocol.NewErrorResponse(req.ID, fmt.Errorf("%s refused: %w", req.Type, err))
@@ -372,6 +375,8 @@ func (d *Daemon) handleCommand(req *protocol.Request, p *peer) *protocol.Respons
 		return d.handleReconcileCommand(req)
 	case protocol.CommandOpProxy:
 		return d.handleOpProxyCommand(req)
+	case protocol.CommandClipboard:
+		return d.handleClipboardCommand(req)
 	default:
 		return protocol.NewErrorResponse(req.ID, fmt.Errorf("unknown command type: %s", req.Type))
 	}
@@ -755,6 +760,51 @@ func (d *Daemon) handleOpProxyCommand(req *protocol.Request) *protocol.Response 
 	}
 	return resp
 }
+
+// handleClipboardCommand sends the clipboard's image, if it holds one. A
+// sent image raises a toast naming the caller: any of the user's processes
+// on the remote host can ask, so the toast is what keeps it visible. A peek
+// or an empty clipboard stays quiet.
+func (d *Daemon) handleClipboardCommand(req *protocol.Request) *protocol.Response {
+	var clipReq protocol.ClipboardRequest
+	if err := json.Unmarshal(req.Payload, &clipReq); err != nil {
+		return protocol.NewErrorResponse(req.ID, fmt.Errorf("invalid clipboard request format: %w", err))
+	}
+
+	ctx, cancel := context.WithTimeout(d.ctx, clipboardTimeout)
+	defer cancel()
+	var clipResp protocol.ClipboardResponse
+	if clipReq.Peek {
+		ok, err := d.clipboard.HasImage(ctx)
+		if err != nil {
+			return protocol.NewErrorResponse(req.ID, err)
+		}
+		clipResp.Image = ok
+	} else {
+		data, err := d.clipboard.PNG(ctx)
+		switch {
+		case errors.Is(err, clipboard.ErrNoImage):
+		case err != nil:
+			return protocol.NewErrorResponse(req.ID, err)
+		default:
+			origin := ""
+			if req.Origin != nil {
+				origin = req.Origin.String()
+			}
+			d.logger.Info("Sending clipboard image", "bytes", len(data), "origin", origin)
+			d.notifier.NotifyClipboard(origin, len(data))
+			clipResp = protocol.ClipboardResponse{Image: true, Data: data}
+		}
+	}
+
+	resp, err := protocol.NewSuccessResponse(req.ID, clipResp)
+	if err != nil {
+		return protocol.NewErrorResponse(req.ID, err)
+	}
+	return resp
+}
+
+const clipboardTimeout = 10 * time.Second
 
 // handleReconcileCommand handles the reconcile command
 func (d *Daemon) handleReconcileCommand(req *protocol.Request) *protocol.Response {

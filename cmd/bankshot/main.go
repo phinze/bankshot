@@ -18,6 +18,10 @@ func main() {
 		// 1Password proxy mode: bankshot op-proxy -- <args>
 		os.Args = append([]string{"bankshot", "op-proxy", "--"}, os.Args[1:]...)
 	}
+	if baseName == "wl-paste" {
+		// Clipboard image mode, for tools that read the clipboard with wl-paste
+		os.Args = append([]string{"bankshot", "wl-paste"}, os.Args[1:]...)
+	}
 
 	rootCmd := cli.NewRootCmd()
 	if err := rootCmd.Execute(); err != nil {

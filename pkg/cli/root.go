@@ -35,6 +35,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newWrapCmd())
 	rootCmd.AddCommand(newMonitorCmd())
 	rootCmd.AddCommand(newOpProxyCmd())
+	rootCmd.AddCommand(newPasteCmd())
+	rootCmd.AddCommand(newWlPasteCmd())
 
 	return rootCmd
 }
