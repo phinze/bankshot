@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // System reads the macOS clipboard through osascript, the way Claude Code
@@ -35,4 +36,18 @@ func (System) PNG(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("osascript: %w", err)
 	}
 	return parseAppleScriptData(out)
+}
+
+// File asks for the clipboard as a file reference. osascript fails when it
+// can't make one, which is the clipboard holding no file.
+func (System) File(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, "osascript", "-e", "POSIX path of (the clipboard as «class furl»)").Output()
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return "", ErrNoFile
+		}
+		return "", fmt.Errorf("osascript: %w", err)
+	}
+	return strings.TrimSuffix(string(out), "\n"), nil
 }

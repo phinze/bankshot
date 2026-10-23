@@ -11,8 +11,10 @@ import (
 // with the screen.
 type System struct{}
 
-var errUnsupported = errors.New("clipboard images are only read on macOS")
+var errUnsupported = errors.New("the clipboard is only read on macOS")
 
 func (System) HasImage(context.Context) (bool, error) { return false, errUnsupported }
 
 func (System) PNG(context.Context) ([]byte, error) { return nil, errUnsupported }
+
+func (System) File(context.Context) (string, error) { return "", errUnsupported }

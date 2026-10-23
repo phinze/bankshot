@@ -1,5 +1,6 @@
-// Package clipboard reads images off this machine's clipboard, for remote
-// callers that can't reach it themselves. It never reads text.
+// Package clipboard reads images and copied files off this machine's
+// clipboard, for remote callers that can't reach it themselves. It never
+// reads text.
 package clipboard
 
 import (
@@ -13,12 +14,18 @@ import (
 // ErrNoImage means the clipboard holds no image.
 var ErrNoImage = errors.New("no image on the clipboard")
 
+// ErrNoFile means the clipboard holds no file.
+var ErrNoFile = errors.New("no file on the clipboard")
+
 // Reader reads the clipboard's image. System is the real one.
 type Reader interface {
 	// HasImage reports whether the clipboard holds an image.
 	HasImage(ctx context.Context) (bool, error)
 	// PNG returns the clipboard's image as PNG, or ErrNoImage.
 	PNG(ctx context.Context) ([]byte, error)
+	// File returns the path of the file copied to the clipboard, as the
+	// Finder or a screen recorder puts it there, or ErrNoFile.
+	File(ctx context.Context) (string, error)
 }
 
 // pngMagic starts every PNG file.

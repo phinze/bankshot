@@ -39,6 +39,9 @@ const (
 	// CommandClipboard asks for the image on the daemon machine's clipboard,
 	// so a screenshot taken there can be pasted on the remote host.
 	CommandClipboard CommandType = "clipboard"
+	// CommandClipboardFile asks for the clipboard's image, or the image or
+	// video file copied there, as a file: its bytes follow the response.
+	CommandClipboardFile CommandType = "clipboard-file"
 )
 
 // Request represents a command request from client to daemon
@@ -205,6 +208,15 @@ type ClipboardRequest struct {
 type ClipboardResponse struct {
 	Image bool   `json:"image"`
 	Data  []byte `json:"data,omitempty"`
+}
+
+// ClipboardFileResponse answers CommandClipboardFile. From the daemon, an
+// empty Name means there's nothing to send; otherwise Size bytes follow the
+// response. The monitor saves them and answers its caller with Path instead.
+type ClipboardFileResponse struct {
+	Name string `json:"name,omitempty"`
+	Size int64  `json:"size,omitempty"`
+	Path string `json:"path,omitempty"`
 }
 
 // SyncRequest is the payload of CommandSync. The caller's tailnet identity,

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -70,6 +71,15 @@ func TestTailnetPeerCommandGate(t *testing.T) {
 	clip.ID = "vouched"
 	if resp := d.handleCommand(clip, p); !resp.Success {
 		t.Errorf("vouched clipboard read refused: %s", resp.Error)
+	}
+	file := request(t, protocol.CommandClipboardFile, nil)
+	file.ID, file.Origin = "forged", &protocol.Origin{}
+	server, client := net.Pipe()
+	go d.serveClipboardFile(server, file, p)
+	line, _ := bufio.NewReader(client).ReadBytes('\n')
+	client.Close()
+	if resp, err := protocol.ParseResponse(line); err != nil || resp.Success {
+		t.Errorf("clipboard file request the relay didn't vouch for = %s, want refused", line)
 	}
 	if resp := d.handleCommand(request(t, protocol.CommandReconcile, map[string]any{}), p); resp.Success {
 		t.Error("reconcile over the tailnet succeeded, want refused")

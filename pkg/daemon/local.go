@@ -9,9 +9,11 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/mitchellh/go-homedir"
+	"github.com/phinze/bankshot/pkg/inbox"
 	"github.com/phinze/bankshot/pkg/monitor"
 	"github.com/phinze/bankshot/pkg/protocol"
 	"github.com/phinze/bankshot/pkg/tailnet"
@@ -113,7 +115,7 @@ func (d *Monitor) serveAgent(ctx context.Context, client *localDaemonClient) {
 		d.inFlight.add(req.ID)
 		defer d.inFlight.remove(req.ID)
 
-		upstream, reader, err := client.Open(req)
+		_, upstream, reader, err := client.Open(req)
 		if err != nil {
 			d.logger.Warn("Agent unavailable", "origin", req.Origin.String(), "error", err)
 			return
@@ -157,6 +159,21 @@ func (d *Monitor) handleLocal(conn net.Conn, pid int, client *localDaemonClient)
 		}
 		resp.ID = callerID
 		reply(resp)
+	case protocol.CommandClipboardFile:
+		callerID := req.ID
+		req.ID = uuid.New().String()
+		req.Origin = monitor.DescribeOrigin(pid)
+		d.inFlight.add(req.ID)
+		defer d.inFlight.remove(req.ID)
+		d.logger.Info("Passing local request to daemon", "type", req.Type, "origin", req.Origin.String())
+
+		file, err := d.receiveClipboardFile(req, client)
+		if err != nil {
+			reply(protocol.NewErrorResponse(callerID, err))
+			return
+		}
+		resp, _ := protocol.NewSuccessResponse(callerID, file)
+		reply(resp)
 	case protocol.CommandForward:
 		var fwd protocol.ForwardRequest
 		if err := json.Unmarshal(req.Payload, &fwd); err != nil {
@@ -190,6 +207,33 @@ func (d *Monitor) handleLocal(conn net.Conn, pid int, client *localDaemonClient)
 	default:
 		reply(protocol.NewErrorResponse(req.ID, fmt.Errorf("%s isn't available on a tailnet host yet", req.Type)))
 	}
+}
+
+// clipboardFileTimeout bounds receiving a clipboard file, enough for the
+// biggest one the daemon sends over a slow link.
+const clipboardFileTimeout = 5 * time.Minute
+
+// receiveClipboardFile asks the daemon for its clipboard's image or file and
+// saves what comes back in this host's inbox, answering with where.
+func (d *Monitor) receiveClipboardFile(req *protocol.Request, client *localDaemonClient) (*protocol.ClipboardFileResponse, error) {
+	resp, upstream, reader, err := client.Open(req)
+	if err != nil {
+		return nil, err
+	}
+	defer upstream.Close()
+	var file protocol.ClipboardFileResponse
+	if err := json.Unmarshal(resp.Data, &file); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	if file.Name == "" {
+		return &file, nil
+	}
+	_ = upstream.SetDeadline(time.Now().Add(clipboardFileTimeout))
+	if file.Path, err = inbox.Save(file.Name, reader, file.Size); err != nil {
+		return nil, err
+	}
+	d.logger.Info("Saved clipboard file", "path", file.Path, "bytes", file.Size)
+	return &file, nil
 }
 
 // replyResult replies to request id with success, or with err if it failed.

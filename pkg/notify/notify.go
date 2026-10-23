@@ -173,6 +173,27 @@ func (n *Notifier) NotifyClipboard(origin string, size int) {
 	n.send("--title", "Clipboard image sent", "--body", body)
 }
 
+// NotifyClipboardFile posts a notification that a remote caller took the
+// file copied to the clipboard, naming it, the file and its size.
+func (n *Notifier) NotifyClipboardFile(origin, name string, size int64) {
+	if n.helperPath == "" {
+		return
+	}
+	body := fmt.Sprintf("%s, %s", name, humanSize(size))
+	if origin != "" {
+		body = origin + "\n" + body
+	}
+	n.send("--title", "Clipboard file sent", "--body", body)
+}
+
+// humanSize renders a byte count in KB, or MB past a few of them.
+func humanSize(size int64) string {
+	if size < 10<<20 {
+		return fmt.Sprintf("%d KB", (size+1023)/1024)
+	}
+	return fmt.Sprintf("%d MB", (size+(1<<20)-1)>>20)
+}
+
 // NotifyForwardBusy posts a notification that a forward couldn't take its
 // local port, so the user knows why localhost:PORT isn't the remote service.
 func (n *Notifier) NotifyForwardBusy(connectionInfo string, remotePort int, err error) {

@@ -68,7 +68,7 @@ bankshot forward 8080
 # Auto-forward ports for a command
 bankshot wrap -- npm run dev
 
-# Save the screenshot on your local clipboard here, and print its path
+# Save the screenshot or recording on your local clipboard here, and print its path
 bankshot paste
 
 # Check status
@@ -181,13 +181,15 @@ $ bankshot forward 3000
 $ bankshot forward 8080:9090
 ```
 
-### Pasting Screenshots
+### Pasting Screenshots and Recordings
 
-`bankshot paste` fetches the image on your local machine's clipboard, saves it
-as a PNG in `~/.cache/bankshot/inbox` on the remote host, and prints the path.
-Images older than a week are cleared out on the next paste. Only images ever
-cross, never clipboard text, and the local machine posts a notification naming
-the caller each time one is sent.
+`bankshot paste` fetches the image on your local machine's clipboard, or the
+image or video file copied there (a screen recording, say), saves it in
+`~/.cache/bankshot/inbox` on the remote host, and prints the path. Files older
+than a week are cleared out on the next paste. Clipboard text never crosses,
+and neither does a copied file that isn't an image or video or is over 200 MB.
+The local machine posts a notification naming the caller each time something
+is sent.
 
 Run as `wl-paste` (the Home Manager module's `enableWlPaste`), bankshot answers
 the two calls Claude Code makes for its ctrl+v image paste on Linux, so pasting

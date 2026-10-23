@@ -322,6 +322,11 @@ func (d *Daemon) handleConnection(conn net.Conn, p *peer) {
 		d.serveAgent(conn, reader, req, p)
 		return
 	}
+	// So does a clipboard file request, sending the file after the response.
+	if req.Type == protocol.CommandClipboardFile {
+		d.serveClipboardFile(conn, req, p)
+		return
+	}
 
 	if isConnectivityProbe(req) {
 		d.logger.Debug("Received command", "type", req.Type, "id", req.ID, "remote", remoteAddr)
