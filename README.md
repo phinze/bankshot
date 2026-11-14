@@ -150,7 +150,12 @@ monitor:
   pollInterval: 1s
   gracePeriod: 30s
   batchWindow: 500ms     # coalesce a burst of new ports into one forward + one notification (0 = immediate)
+  autoForward: true      # false: forward only what bankshot forward/wrap ask for
 ```
+
+Set `autoForward: false` to keep the monitor for everything else it does
+(opening URLs, paste, the op proxy, the ssh-agent socket) while forwarding
+only the ports you ask for with `bankshot forward` or `bankshot wrap`.
 
 With NixOS/home-manager, configure via `programs.bankshot.monitor.*` options.
 

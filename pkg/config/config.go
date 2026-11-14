@@ -111,6 +111,17 @@ type MonitorConfig struct {
 	// request (and a single rolled-up notification). Defaults to 500ms. Set to
 	// "0" to forward each port immediately as it's discovered.
 	BatchWindow string `yaml:"batchWindow,omitempty"`
+	// AutoForward controls whether the monitor watches for listening ports
+	// and forwards them on its own. Defaults to true. With it off, only
+	// ports asked for by hand (bankshot forward, bankshot wrap) are
+	// forwarded; the relay, agent socket, and other tailnet jobs carry on.
+	AutoForward *bool `yaml:"autoForward,omitempty"`
+}
+
+// AutoForwardEnabled reports whether the monitor should forward listening
+// ports on its own, which it does unless autoForward is set to false.
+func (m MonitorConfig) AutoForwardEnabled() bool {
+	return m.AutoForward == nil || *m.AutoForward
 }
 
 // PortRange defines a range of ports

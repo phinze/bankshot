@@ -53,6 +53,7 @@ type SessionMonitor struct {
 	batchWindow        time.Duration          // coalesce newly-opened ports for this long before forwarding
 	pendingBatch       map[int]PortEvent      // ports awaiting the next batch flush, keyed by port
 	batchTimer         *time.Timer            // fires batchWindow after the first port in the current batch
+	manualOnly         bool                   // auto-forward off: forward pins only
 	mutex              sync.RWMutex
 }
 
@@ -95,6 +96,10 @@ type SessionConfig struct {
 	BatchWindow     time.Duration // coalesce a burst of newly-opened ports into one forward request
 	Logger          *slog.Logger
 	PortEventSource PortEventSource
+	// ManualOnly turns off auto-forwarding: no port events are watched and
+	// Seed does nothing, so only pins are forwarded. PortEventSource may be
+	// nil when it is set.
+	ManualOnly bool
 }
 
 // NewSessionMonitor creates a new session monitor
@@ -138,6 +143,7 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 		resolveStartTime:   ResolveStartTime,
 		gracePeriod:        cfg.GracePeriod,
 		batchWindow:        cfg.BatchWindow,
+		manualOnly:         cfg.ManualOnly,
 		activeForwards:     make(map[string]ForwardInfo),
 		wanted:             make(map[string]PortEvent),
 		pinned:             make(map[int]pin),
@@ -148,18 +154,23 @@ func NewSessionMonitor(cfg SessionConfig) (*SessionMonitor, error) {
 
 // Start begins monitoring and auto-forwarding
 func (m *SessionMonitor) Start(ctx context.Context) error {
-	m.logger.Info("Starting session monitor",
-		"session", m.sessionID,
-		"portRanges", m.portRanges,
-		"ignoreProcesses", m.ignoreProcesses)
+	if m.manualOnly {
+		m.logger.Info("Starting session monitor; auto-forward is off, so only manual forwards are made",
+			"session", m.sessionID)
+	} else {
+		m.logger.Info("Starting session monitor",
+			"session", m.sessionID,
+			"portRanges", m.portRanges,
+			"ignoreProcesses", m.ignoreProcesses)
 
-	// Start system-wide port monitoring
-	if err := m.systemMonitor.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start system monitor: %w", err)
+		// Start system-wide port monitoring
+		if err := m.systemMonitor.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start system monitor: %w", err)
+		}
+
+		// Handle events
+		go m.handleEvents(ctx)
 	}
-
-	// Handle events
-	go m.handleEvents(ctx)
 
 	// Periodic cleanup
 	go m.cleanupLoop(ctx)
@@ -732,6 +743,9 @@ func (m *SessionMonitor) cleanup() error {
 // through the same filters as a live event, ignoreProcesses included, where
 // the owning process can be resolved.
 func (m *SessionMonitor) Seed() error {
+	if m.manualOnly {
+		return nil
+	}
 	ports, err := GetListeningPorts()
 	if err != nil {
 		return fmt.Errorf("list listening ports: %w", err)

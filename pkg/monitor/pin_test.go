@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -234,5 +235,46 @@ func TestUnpinHandsOverAPortThatOpenedWhilePinned(t *testing.T) {
 
 	if n := len(client.requestsOfType(protocol.CommandUnforward)); n != 1 {
 		t.Errorf("sent %d unforwards once the auto-forward's port closed, want 1", n)
+	}
+}
+
+func TestManualOnlyForwardsPinsAndNothingElse(t *testing.T) {
+	client := &mockDaemonClient{}
+	sm, _ := NewSessionMonitor(SessionConfig{
+		SessionID:    "test",
+		DaemonClient: client,
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ManualOnly:   true, // and no PortEventSource: Start mustn't need one
+	})
+	sm.resolveStartTime = func(int) string { return "" }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- sm.Start(ctx) }()
+
+	// Seed would otherwise forward whatever this machine is listening on.
+	if err := sm.Seed(); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(client.requestsOfType(protocol.CommandForward)) + len(client.requestsOfType(protocol.CommandForwardBatch)); n != 0 {
+		t.Fatalf("seeded %d forwards with auto-forward off", n)
+	}
+
+	if err := sm.Pin(3000, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = sm.Sync()
+	if got := syncedPorts(t, client); len(got) != 1 || got[3000] != 3000 {
+		t.Errorf("synced %v, want only the pin 3000->3000", got)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start didn't return after cancel")
 	}
 }

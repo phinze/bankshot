@@ -25,6 +25,7 @@ with lib; let
       pollInterval = cfg.monitor.pollInterval;
       gracePeriod = cfg.monitor.gracePeriod;
       batchWindow = cfg.monitor.batchWindow;
+      autoForward = cfg.monitor.autoForward;
     };
   } // lib.optionalAttrs cfg.opProxy.enabled {
     op_proxy = {
@@ -182,6 +183,18 @@ in {
     };
 
     monitor = {
+      autoForward = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Whether bankshot monitor forwards listening ports on its own. When
+          false, only ports asked for with `bankshot forward` or
+          `bankshot wrap` are forwarded, and the monitor's other jobs (the
+          relay, URL opening, paste, the op proxy and the ssh-agent socket)
+          carry on as before.
+        '';
+      };
+
       portRanges = mkOption {
         type = types.listOf (types.submodule {
           options = {

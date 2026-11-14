@@ -126,8 +126,13 @@ func (d *Monitor) Start(ctx context.Context) error {
 		}
 	}
 
-	// Create port event source (eBPF on Linux if available, else polling)
-	portSource := monitor.NewSystemPortEventSource(d.logger, pollInterval)
+	// Create port event source (eBPF on Linux if available, else polling),
+	// unless auto-forward is off and nothing will read its events.
+	autoForward := d.config.Monitor.AutoForwardEnabled()
+	var portSource monitor.PortEventSource
+	if autoForward {
+		portSource = monitor.NewSystemPortEventSource(d.logger, pollInterval)
+	}
 
 	// Create and start session monitor
 	sessionMonitor, err := monitor.NewSessionMonitor(monitor.SessionConfig{
@@ -140,6 +145,7 @@ func (d *Monitor) Start(ctx context.Context) error {
 		BatchWindow:     batchWindow,
 		Logger:          d.logger,
 		PortEventSource: portSource,
+		ManualOnly:      !autoForward,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create session monitor: %w", err)
@@ -549,8 +555,14 @@ func (d *Monitor) Reconcile() error {
 	if err != nil {
 		return fmt.Errorf("failed to build process filter: %w", err)
 	}
+	// With auto-forward off, reconcile only clears stale forwards: nothing
+	// listening is forwarded unless someone asked for it by hand.
+	candidates := vmPorts
+	if !d.config.Monitor.AutoForwardEnabled() {
+		candidates = nil
+	}
 	vmListeningInRange := make(map[int]bool)
-	for _, port := range vmPorts {
+	for _, port := range candidates {
 		if !monitor.ShouldForwardPort(port.Port, port.BindAddr, portRanges, ignorePortsMap) {
 			continue
 		}
