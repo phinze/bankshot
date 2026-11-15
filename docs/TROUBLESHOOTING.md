@@ -16,6 +16,18 @@
 - Ensure SSH ControlMaster is configured
 - Check control socket: `ls -la /tmp/ssh-*`
 
+### Over Tailscale: forwards or requests refused
+- The daemon logs "Rejected tailnet connection" for each caller it turns away. A remote missing from the laptop's
+  `tailnet.allow` is refused; a tagged node must be listed by node name or
+  tag, not by login.
+- `tailscale whois <remote's tailnet IP>` on the laptop shows the name and
+  tags the daemon checks against.
+- Forwards vanish about six minutes after the monitor stops talking to the
+  laptop (the lease). Check the monitor is running and that the laptop is
+  awake and on the tailnet.
+- With `autoForward: false`, nothing is forwarded unless you ask with
+  `bankshot forward` or `bankshot wrap`.
+
 ## Debug Mode
 ```bash
 BANKSHOT_DEBUG=1 bankshotd    # Run daemon with debug logs

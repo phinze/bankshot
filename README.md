@@ -8,11 +8,17 @@ Open URLs and manage SSH port forwards from remote development environments.
 - Open URLs in your local browser from SSH sessions
 - Forward ports dynamically for OAuth flows and development servers
 - Auto-forward ports automatically when running `bankshot monitor` on remote servers
+- Paste your laptop's clipboard images, use its 1Password CLI, and sign with its ssh agent
 
 Components:
-- **Local daemon**: Runs on your laptop, handles URL opening and SSH port forward execution
-- **bankshot monitor**: Runs on remote servers, monitors processes and requests forwards automatically
-- **bankshot CLI**: Used in remote SSH sessions for manual operations
+- **Local daemon**: Runs on your laptop, opens URLs and holds the port forwards
+- **bankshot monitor**: Runs on remote servers, watches for listening ports and passes the CLI's requests on to the daemon
+- **bankshot CLI**: Used on the remote server for manual operations
+
+The remote server reaches the daemon one of two ways: over an ssh
+`RemoteForward` of the daemon's socket, or directly over Tailscale. The ssh
+bridge is the simple setup. The tailnet keeps working with no ssh session up,
+which suits a remote you reach some other way (Rex, mosh, a web terminal).
 
 ## Installation
 
@@ -40,9 +46,9 @@ Need help? Check [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common i
 
 ## Quick Start
 
-### 1. Configure SSH
+### 1. Connect the remote to your laptop
 
-Add to your `~/.ssh/config`:
+**Over ssh.** Add to your `~/.ssh/config`:
 
 ```
 Host *
@@ -51,6 +57,29 @@ Host *
     ControlPersist 10m
     RemoteForward ~/.bankshot.sock ~/.bankshot.sock
 ```
+
+**Over Tailscale.** Both machines need to be on the same tailnet. On the
+laptop, let the remote's node in:
+
+```yaml
+# laptop: ~/.config/bankshot/config.yaml
+tailnet:
+  enabled: true
+  allow: [devbox]          # tailscale logins, node names, or tags
+```
+
+On the remote, point at the laptop's node and run `bankshot monitor`:
+
+```yaml
+# remote: ~/.config/bankshot/config.yaml
+network: tcp
+address: laptop:61000
+tailnet:
+  enabled: true
+  allow: [you@github]      # who may use the forwards the laptop opens
+```
+
+See [Over Tailscale](#over-tailscale) for how it fits together.
 
 ### 2. Basic Commands
 
@@ -104,6 +133,47 @@ bankshot status
 - **CLI**: Manual control from remote SSH sessions
 - **Communication**: JSON over Unix socket (forwarded via SSH)
 
+### Over Tailscale
+
+```
+┌──────────────────────────┐   tailnet    ┌──────────────────────────┐
+│ Laptop                   │              │ Remote                   │
+│                          │  requests    │                          │
+│ bankshotd :61000  ◄──────┼──────────────┼── bankshot monitor       │
+│  - checks tailscale whois│              │   - ~/.bankshot.sock     │
+│                          │  forwards    │     for the CLI          │
+│ localhost:PORT  ─────────┼──────────────┼─► relay :61001           │
+│  (one per forward)       │              │   dials localhost:PORT   │
+└──────────────────────────┘              └──────────────────────────┘
+```
+
+With `tailnet.enabled`, the monitor is the remote's only link to the laptop.
+The CLI talks to the monitor on `~/.bankshot.sock` (`tailnet.local_socket`),
+and the monitor passes each request on to the daemon's control port (61000).
+The daemon looks the caller up with `tailscale whois` and refuses anyone not
+in its `allow` list. A tagged node has to be allowed by node name or tag,
+since it has no login.
+
+A forward is a loopback listener on the laptop. Each connection to it goes
+back over the tailnet to the monitor's relay (61001, on the remote's tailnet
+address), which dials the port on the remote's own loopback. The relay
+admits only the logins in the remote's `allow`, and only for ports the
+monitor is forwarding.
+
+Before acting on a request, the daemon asks the relay to confirm it really
+came from the monitor, so another process on the tailnet can't make requests
+in the monitor's name.
+
+No ssh session tells the daemon when the remote goes away, so the monitor
+renews a lease every two minutes (`tailnet.heartbeat`). A remote that's
+silent for six (`tailnet.lease`) loses its forwards. The lease clock stops
+while the laptop sleeps.
+
+Two more jobs ride the same link. With `tailnet.agent_socket` set, the
+monitor serves an ssh agent there, backed by the laptop's (`ssh_agent` in
+the daemon's config), limited to listing keys and signing. And the op proxy
+(`enableOpProxy`) sends `op` to the laptop's 1Password CLI.
+
 ### Auto-Discovery of Existing Forwards
 
 When the daemon starts, it automatically discovers and registers any existing SSH port forwards. This means:
@@ -124,6 +194,7 @@ On remote servers, `bankshot monitor` automatically forwards ports without needi
 - Only forwards ports bound to local/wildcard addresses (`0.0.0.0`, `127.0.0.1`, `::`, `::1`) — skips ports bound to Tailscale, LAN, or other non-local interfaces
 - Requests forwards from the local daemon immediately
 - Cleans up forwards when processes exit (after a grace period)
+- Can be told not to (`autoForward: false`), forwarding only what `bankshot forward` and `bankshot wrap` ask for
 
 **Setup:**
 
