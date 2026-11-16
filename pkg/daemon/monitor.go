@@ -16,7 +16,8 @@ import (
 	"github.com/phinze/bankshot/pkg/tailnet"
 )
 
-// Monitor is the remote-side service that monitors ports and requests forwards
+// Monitor is the remote-side service that carries this host's requests to the
+// daemon over the tailnet and holds the forwards asked for here
 type Monitor struct {
 	logger          *slog.Logger
 	systemdMode     bool
@@ -68,10 +69,13 @@ func NewMonitor(cfg Config) (*Monitor, error) {
 	}, nil
 }
 
-// Start runs the monitor with port monitoring
+// Start runs the monitor until ctx is done
 func (d *Monitor) Start(ctx context.Context) error {
 	d.ctx = ctx
-	d.logger.Info("Starting monitor with port monitoring")
+	if !d.config.Tailnet.Enabled {
+		return fmt.Errorf("bankshot monitor talks to the daemon over the tailnet; set tailnet.enabled")
+	}
+	d.logger.Info("Starting monitor")
 
 	// Write PID file if requested
 	if d.pidFile != "" {
@@ -88,74 +92,21 @@ func (d *Monitor) Start(ctx context.Context) error {
 		logger:  d.logger,
 	}
 
-	// Generate session ID based on hostname (for SSH connection matching)
+	// Generate session ID based on hostname
 	hostname, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("failed to get hostname: %w", err)
 	}
-	sessionID := hostname
-
-	// Parse monitor config from main config
-	var portRanges []monitor.PortRange // nil = forward all non-privileged ports (>= 1024)
-	ignorePorts := d.config.Monitor.IgnorePorts
-	ignoreProcesses := d.ignoreProcesses()
-	pollInterval := 5 * time.Second // Default to 5s for reasonable CPU usage
-	gracePeriod := 30 * time.Second
-	batchWindow := 500 * time.Millisecond // Coalesce a burst of newly-opened ports
-
-	// Override with config if present
-	if len(d.config.Monitor.PortRanges) > 0 {
-		portRanges = make([]monitor.PortRange, len(d.config.Monitor.PortRanges))
-		for i, pr := range d.config.Monitor.PortRanges {
-			portRanges[i] = monitor.PortRange{Start: pr.Start, End: pr.End}
-		}
-	}
-	if d.config.Monitor.PollInterval != "" {
-		if duration, err := time.ParseDuration(d.config.Monitor.PollInterval); err == nil {
-			pollInterval = duration
-		}
-	}
-	if d.config.Monitor.GracePeriod != "" {
-		if duration, err := time.ParseDuration(d.config.Monitor.GracePeriod); err == nil {
-			gracePeriod = duration
-		}
-	}
-	if d.config.Monitor.BatchWindow != "" {
-		if duration, err := time.ParseDuration(d.config.Monitor.BatchWindow); err == nil {
-			batchWindow = duration
-		}
-	}
-
-	// Create port event source (eBPF on Linux if available, else polling),
-	// unless auto-forward is off and nothing will read its events.
-	autoForward := d.config.Monitor.AutoForwardEnabled()
-	var portSource monitor.PortEventSource
-	if autoForward {
-		portSource = monitor.NewSystemPortEventSource(d.logger, pollInterval)
-	}
-
-	// Create and start session monitor
-	sessionMonitor, err := monitor.NewSessionMonitor(monitor.SessionConfig{
-		SessionID:       sessionID,
-		DaemonClient:    daemonClient,
-		PortRanges:      portRanges,
-		IgnorePorts:     ignorePorts,
-		IgnoreProcesses: ignoreProcesses,
-		GracePeriod:     gracePeriod,
-		BatchWindow:     batchWindow,
-		Logger:          d.logger,
-		PortEventSource: portSource,
-		ManualOnly:      !autoForward,
+	d.sessionMonitor = monitor.NewSessionMonitor(monitor.SessionConfig{
+		SessionID:    hostname,
+		DaemonClient: daemonClient,
+		Logger:       d.logger,
 	})
-	if err != nil {
-		return fmt.Errorf("failed to create session monitor: %w", err)
-	}
-	d.sessionMonitor = sessionMonitor
 
 	// Notify systemd we're ready
 	if d.systemdMode {
 		d.notifySystemd("READY=1")
-		d.notifySystemd("STATUS=Monitor monitoring ports")
+		d.notifySystemd("STATUS=Monitor running")
 
 		// Start watchdog if configured
 		go d.watchdogLoop()
@@ -171,23 +122,14 @@ func (d *Monitor) Start(ctx context.Context) error {
 		}
 	}()
 
-	if d.config.Tailnet.Enabled {
-		// Over the tailnet, the sync heartbeat both keeps the daemon's lease
-		// alive and repairs forwards after the daemon comes back, so there's
-		// no separate connectivity probe.
-		if err := d.sessionMonitor.Seed(); err != nil {
-			d.logger.Warn("Failed to seed already-listening ports", "error", err)
-		}
-		go d.serveRelay(monitorCtx)
-		go d.serveLocal(monitorCtx, daemonClient)
-		if d.config.Tailnet.AgentSocket != "" {
-			go d.serveAgent(monitorCtx, daemonClient)
-		}
-		go d.heartbeatLoop(monitorCtx)
-	} else {
-		// Start socket connectivity monitor for sleep/wake recovery
-		go d.socketConnectivityLoop(monitorCtx, daemonClient)
+	// The sync heartbeat both keeps the daemon's lease alive and repairs
+	// forwards after the daemon comes back.
+	go d.serveRelay(monitorCtx)
+	go d.serveLocal(monitorCtx, daemonClient)
+	if d.config.Tailnet.AgentSocket != "" {
+		go d.serveAgent(monitorCtx, daemonClient)
 	}
+	go d.heartbeatLoop(monitorCtx)
 
 	// Wait for shutdown signal
 	<-ctx.Done()
@@ -204,7 +146,7 @@ func (d *Monitor) Start(ctx context.Context) error {
 
 const (
 	daemonDialTimeout    = 5 * time.Second
-	daemonRequestTimeout = time.Minute // a big ssh batch runs ssh -O forward per port
+	daemonRequestTimeout = time.Minute
 )
 
 // serveRelay listens on this machine's tailnet address for the daemon's
@@ -277,14 +219,6 @@ func (d *Monitor) heartbeatLoop(ctx context.Context) {
 		d.socketReachable = true
 		next = interval
 	}
-}
-
-// ignoreProcesses returns the configured process ignore list, or the default.
-func (d *Monitor) ignoreProcesses() []string {
-	if len(d.config.Monitor.IgnoreProcesses) > 0 {
-		return d.config.Monitor.IgnoreProcesses
-	}
-	return []string{"sshd", "systemd", "ssh-agent", "/\\.test$/"}
 }
 
 // localDaemonClient implements DaemonClient for sending requests to local daemon
@@ -406,40 +340,6 @@ func (d *Monitor) watchdogLoop() {
 	}
 }
 
-// socketConnectivityLoop periodically probes the daemon socket to detect
-// SSH reconnection after sleep/wake. On unreachable → reachable transition,
-// it triggers reconciliation to re-establish port forwards.
-func (d *Monitor) socketConnectivityLoop(ctx context.Context, client *localDaemonClient) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			req := &protocol.Request{
-				ID:   "connectivity-check-" + fmt.Sprintf("%d", time.Now().Unix()),
-				Type: protocol.CommandStatus,
-			}
-
-			_, err := client.SendRequest(req)
-			reachable := err == nil
-
-			if reachable && !d.socketReachable {
-				d.logger.Info("Daemon socket became reachable, triggering reconciliation")
-				if err := d.Reconcile(); err != nil {
-					d.logger.Error("Reconciliation after reconnect failed", "error", err)
-				}
-			} else if !reachable && d.socketReachable {
-				d.logger.Warn("Daemon socket became unreachable")
-			}
-
-			d.socketReachable = reachable
-		}
-	}
-}
-
 // writePIDFile writes the current process ID to a file
 func (d *Monitor) writePIDFile() error {
 	if d.pidFile == "" {
@@ -466,212 +366,4 @@ func (d *Monitor) removePIDFile() {
 	if err := os.Remove(d.pidFile); err != nil && !os.IsNotExist(err) {
 		d.logger.Error("Failed to remove PID file", "error", err)
 	}
-}
-
-// Reconcile performs VM-side reconciliation of port forwards
-// It queries the laptop daemon for existing forwards and compares with actual
-// listening ports on the VM, then sends forward/unforward requests to converge.
-func (d *Monitor) Reconcile() error {
-	d.logger.Info("Starting VM-side reconciliation")
-
-	// Create daemon client
-	daemonClient := &localDaemonClient{
-		network: d.config.Network,
-		address: d.config.Address,
-		logger:  d.logger,
-	}
-
-	// Get hostname for connection matching
-	hostname, err := os.Hostname()
-	if err != nil {
-		return fmt.Errorf("failed to get hostname: %w", err)
-	}
-	sessionID := hostname
-
-	// Query daemon for existing forwards
-	listReq := &protocol.Request{
-		ID:   "reconcile-" + fmt.Sprintf("%d", time.Now().Unix()),
-		Type: protocol.CommandList,
-	}
-
-	listResp, err := daemonClient.SendRequest(listReq)
-	if err != nil {
-		return fmt.Errorf("failed to query daemon forwards: %w", err)
-	}
-
-	if !listResp.Success {
-		return fmt.Errorf("daemon returned error: %s", listResp.Error)
-	}
-
-	// Parse forwards list
-	var listData protocol.ListResponse
-	if err := json.Unmarshal(listResp.Data, &listData); err != nil {
-		return fmt.Errorf("failed to parse forwards list: %w", err)
-	}
-
-	d.logger.Debug("Retrieved forwards from daemon", "count", len(listData.Forwards))
-
-	// Filter to forwards matching our session/hostname
-	daemonForwards := make(map[int]bool) // port -> exists
-	for _, fwd := range listData.Forwards {
-		if fwd.ConnectionInfo == sessionID {
-			daemonForwards[fwd.RemotePort] = true
-		}
-	}
-
-	d.logger.Debug("Forwards for this session", "count", len(daemonForwards))
-
-	// Get listening ports on VM
-	vmPorts, err := monitor.GetListeningPorts()
-	if err != nil {
-		return fmt.Errorf("failed to get VM listening ports: %w", err)
-	}
-
-	// Parse port ranges and ignore ports from config
-	var portRanges []monitor.PortRange
-	if len(d.config.Monitor.PortRanges) > 0 {
-		portRanges = make([]monitor.PortRange, len(d.config.Monitor.PortRanges))
-		for i, pr := range d.config.Monitor.PortRanges {
-			portRanges[i] = monitor.PortRange{Start: pr.Start, End: pr.End}
-		}
-	}
-	ignorePortsMap := make(map[int]bool, len(d.config.Monitor.IgnorePorts))
-	for _, p := range d.config.Monitor.IgnorePorts {
-		ignorePortsMap[p] = true
-	}
-
-	// Build set of ALL VM listening ports (for detecting stale forwards)
-	allVMListening := make(map[int]bool)
-	for _, port := range vmPorts {
-		allVMListening[port.Port] = true
-	}
-
-	// Build set of VM ports that should be auto-forwarded, screening owners
-	// against ignoreProcesses the way live port events are.
-	filter, err := monitor.NewSessionMonitor(monitor.SessionConfig{
-		IgnoreProcesses: d.ignoreProcesses(),
-		Logger:          d.logger,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to build process filter: %w", err)
-	}
-	// With auto-forward off, reconcile only clears stale forwards: nothing
-	// listening is forwarded unless someone asked for it by hand.
-	candidates := vmPorts
-	if !d.config.Monitor.AutoForwardEnabled() {
-		candidates = nil
-	}
-	vmListeningInRange := make(map[int]bool)
-	for _, port := range candidates {
-		if !monitor.ShouldForwardPort(port.Port, port.BindAddr, portRanges, ignorePortsMap) {
-			continue
-		}
-		if ignored, name := filter.IgnoresProcess(port.PID); ignored {
-			d.logger.Debug("Not reconciling port from excluded process", "port", port.Port, "process", name)
-			continue
-		}
-		vmListeningInRange[port.Port] = true
-	}
-
-	d.logger.Debug("VM ports listening",
-		"total", len(allVMListening),
-		"shouldForward", len(vmListeningInRange))
-
-	// Reconcile: determine what actions to take
-	var toForward, toUnforward []int
-
-	// Ports listening on VM in our auto-forward range but not forwarded -> need forward
-	for port := range vmListeningInRange {
-		if !daemonForwards[port] {
-			toForward = append(toForward, port)
-		}
-	}
-
-	// Ports forwarded but not listening on VM at all -> need unforward
-	// This only removes truly stale forwards, preserving forwards created
-	// by "bankshot wrap" for ports outside the auto-forward range.
-	for port := range daemonForwards {
-		if !allVMListening[port] {
-			toUnforward = append(toUnforward, port)
-		}
-	}
-
-	d.logger.Info("Reconciliation plan",
-		"toForward", len(toForward),
-		"toUnforward", len(toUnforward),
-		"unchanged", len(vmListeningInRange)-len(toForward))
-
-	// Execute forwards as a single batch so a reconnect that re-forwards many
-	// ports produces one rolled-up notification instead of one per port.
-	if len(toForward) > 0 {
-		ports := make([]protocol.BatchForwardPort, 0, len(toForward))
-		for _, port := range toForward {
-			ports = append(ports, protocol.BatchForwardPort{
-				RemotePort: port,
-				LocalPort:  port,
-				Host:       "localhost",
-			})
-		}
-
-		fwdReq := &protocol.Request{
-			ID:   "reconcile-fwd-batch-" + fmt.Sprintf("%d", time.Now().Unix()),
-			Type: protocol.CommandForwardBatch,
-		}
-		payload, err := json.Marshal(protocol.BatchForwardRequest{
-			ConnectionInfo: sessionID,
-			Forwards:       ports,
-		})
-		if err != nil {
-			d.logger.Warn("Failed to marshal batch forward request", "error", err)
-		} else {
-			fwdReq.Payload = payload
-			d.logger.Info("Requesting batch forward for VM ports", "ports", len(ports))
-			fwdResp, err := daemonClient.SendRequest(fwdReq)
-			if err != nil {
-				d.logger.Warn("Failed to request batch forward", "error", err)
-			} else if !fwdResp.Success {
-				d.logger.Warn("Batch forward request failed", "error", fwdResp.Error)
-			} else {
-				d.logger.Info("Successfully requested batch forward", "ports", len(ports))
-			}
-		}
-	}
-
-	// Execute unforwards
-	for _, port := range toUnforward {
-		d.logger.Info("Requesting unforward for port", "port", port)
-		unfwdReq := &protocol.Request{
-			ID:   "reconcile-unfwd-" + fmt.Sprintf("%d-%d", port, time.Now().Unix()),
-			Type: protocol.CommandUnforward,
-		}
-
-		payload, err := json.Marshal(protocol.UnforwardRequest{
-			RemotePort:     port,
-			Host:           "localhost",
-			ConnectionInfo: sessionID,
-		})
-		if err != nil {
-			d.logger.Warn("Failed to marshal unforward request", "port", port, "error", err)
-			continue
-		}
-		unfwdReq.Payload = payload
-
-		unfwdResp, err := daemonClient.SendRequest(unfwdReq)
-		if err != nil {
-			d.logger.Warn("Failed to request unforward", "port", port, "error", err)
-			continue
-		}
-
-		if !unfwdResp.Success {
-			d.logger.Warn("Unforward request failed", "port", port, "error", unfwdResp.Error)
-		} else {
-			d.logger.Info("Successfully requested unforward", "port", port)
-		}
-	}
-
-	d.logger.Info("VM-side reconciliation complete",
-		"forwarded", len(toForward),
-		"unforwarded", len(toUnforward))
-
-	return nil
 }

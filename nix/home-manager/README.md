@@ -43,7 +43,6 @@ Add bankshot to your flake inputs and use the module:
 - `programs.bankshot.enableWlPaste`: Create a wl-paste symlink to bankshot, which serves the local clipboard's image (and only images)
 - `programs.bankshot.enableOpProxy`: Create an op symlink to bankshot, which proxies 1Password CLI requests to the local machine (`programs.bankshot.opProxy.*` configures the local end)
 - `programs.bankshot.daemon.*`: Run the daemon as a launchd (macOS) or systemd user service
-- `programs.bankshot.monitor.*`: How `bankshot monitor` picks ports to forward (`autoForward`, `portRanges`, `ignorePorts`, `ignoreProcesses`, `pollInterval`, `gracePeriod`, `batchWindow`)
 - `programs.bankshot.settings`: Anything else, merged into ~/.config/bankshot/config.yaml (`network`, `address`, `tailnet`, `ssh_agent`, ...)
 - `programs.bankshot.generatedConfig`: The rendered config file, read-only, for wiring into the NixOS module's `services.bankshot.monitor.configFile`
 

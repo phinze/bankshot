@@ -18,9 +18,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Errorf("DefaultConfig() LogLevel = %v, want %v", cfg.LogLevel, "info")
 	}
-	if cfg.SSHCommand != "ssh" {
-		t.Errorf("DefaultConfig() SSHCommand = %v, want %v", cfg.SSHCommand, "ssh")
-	}
 }
 
 func TestLoad(t *testing.T) {
@@ -35,12 +32,11 @@ func TestLoad(t *testing.T) {
 			content: `network: tcp
 address: 127.0.0.1:8888
 log_level: debug
-ssh_command: /usr/bin/ssh`,
+ssh_command: /usr/bin/ssh`, // a key from older configs, ignored now
 			want: &Config{
-				Network:    "tcp",
-				Address:    "127.0.0.1:8888",
-				LogLevel:   "debug",
-				SSHCommand: "/usr/bin/ssh",
+				Network:  "tcp",
+				Address:  "127.0.0.1:8888",
+				LogLevel: "debug",
 			},
 			wantErr: false,
 		},
@@ -49,10 +45,9 @@ ssh_command: /usr/bin/ssh`,
 			content: `network: tcp
 log_level: warn`,
 			want: &Config{
-				Network:    "tcp",
-				Address:    "~/.bankshot.sock",
-				LogLevel:   "warn",
-				SSHCommand: "ssh",
+				Network:  "tcp",
+				Address:  "~/.bankshot.sock",
+				LogLevel: "warn",
 			},
 			wantErr: false,
 		},
@@ -94,9 +89,6 @@ log_level: warn`,
 				if got.LogLevel != tt.want.LogLevel {
 					t.Errorf("Load() LogLevel = %v, want %v", got.LogLevel, tt.want.LogLevel)
 				}
-				if got.SSHCommand != tt.want.SSHCommand {
-					t.Errorf("Load() SSHCommand = %v, want %v", got.SSHCommand, tt.want.SSHCommand)
-				}
 			}
 		})
 	}
@@ -132,30 +124,27 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid unix config",
 			config: &Config{
-				Network:    "unix",
-				Address:    "~/.bankshot.sock",
-				LogLevel:   "info",
-				SSHCommand: "ssh",
+				Network:  "unix",
+				Address:  "~/.bankshot.sock",
+				LogLevel: "info",
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid tcp config",
 			config: &Config{
-				Network:    "tcp",
-				Address:    "127.0.0.1:9999",
-				LogLevel:   "debug",
-				SSHCommand: "ssh",
+				Network:  "tcp",
+				Address:  "127.0.0.1:9999",
+				LogLevel: "debug",
 			},
 			wantErr: false,
 		},
 		{
 			name: "invalid network type",
 			config: &Config{
-				Network:    "udp",
-				Address:    "127.0.0.1:9999",
-				LogLevel:   "info",
-				SSHCommand: "ssh",
+				Network:  "udp",
+				Address:  "127.0.0.1:9999",
+				LogLevel: "info",
 			},
 			wantErr: true,
 			errMsg:  "invalid network type: udp",
@@ -163,10 +152,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid log level",
 			config: &Config{
-				Network:    "unix",
-				Address:    "~/.bankshot.sock",
-				LogLevel:   "verbose",
-				SSHCommand: "ssh",
+				Network:  "unix",
+				Address:  "~/.bankshot.sock",
+				LogLevel: "verbose",
 			},
 			wantErr: true,
 			errMsg:  "invalid log level: verbose",
@@ -174,10 +162,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "all log levels",
 			config: &Config{
-				Network:    "unix",
-				Address:    "~/.bankshot.sock",
-				LogLevel:   "debug",
-				SSHCommand: "ssh",
+				Network:  "unix",
+				Address:  "~/.bankshot.sock",
+				LogLevel: "debug",
 			},
 			wantErr: false,
 		},
@@ -204,10 +191,9 @@ func TestValidateLogLevels(t *testing.T) {
 
 	for _, level := range validLevels {
 		cfg := &Config{
-			Network:    "unix",
-			Address:    "~/.bankshot.sock",
-			LogLevel:   level,
-			SSHCommand: "ssh",
+			Network:  "unix",
+			Address:  "~/.bankshot.sock",
+			LogLevel: level,
 		}
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("Validate() with log level %s should not error, got: %v", level, err)

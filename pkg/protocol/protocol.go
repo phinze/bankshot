@@ -14,19 +14,12 @@ const (
 	CommandOpen CommandType = "open"
 	// CommandForward requests a port forward
 	CommandForward CommandType = "forward"
-	// CommandForwardBatch requests multiple port forwards in a single call.
-	// The monitor coalesces a burst of newly-opened ports (e.g. everything
-	// already listening when an SSH connection comes up) into one batch so the
-	// daemon can set them all up and post a single rolled-up notification.
-	CommandForwardBatch CommandType = "forward-batch"
 	// CommandUnforward removes a port forward
 	CommandUnforward CommandType = "unforward"
 	// CommandStatus gets daemon status
 	CommandStatus CommandType = "status"
 	// CommandList lists active forwards
 	CommandList CommandType = "list"
-	// CommandReconcile triggers immediate forward reconciliation
-	CommandReconcile CommandType = "reconcile"
 	// CommandOpProxy proxies 1Password CLI requests to the local machine
 	CommandOpProxy CommandType = "op-proxy"
 	// CommandAgent turns the connection into an ssh-agent stream to the
@@ -110,23 +103,13 @@ type ForwardRequest struct {
 	RemotePort     int    `json:"remote_port"`            // Port on remote machine
 	LocalPort      int    `json:"local_port,omitempty"`   // Port on local machine (0 = same as remote)
 	Host           string `json:"host,omitempty"`         // Remote host (default: localhost)
-	ConnectionInfo string `json:"connection_info"`        // SSH connection identifier (hostname, user@host, etc.)
-	SocketPath     string `json:"socket_path,omitempty"`  // Optional: specific socket path
+	ConnectionInfo string `json:"connection_info"`        // Remote host's name; over the tailnet the daemon uses whois instead
 	ProcessName    string `json:"process_name,omitempty"` // Name of the process that opened the port
 	ProcessCwd     string `json:"process_cwd,omitempty"`  // Working directory of the process
 	UntilExit      bool   `json:"until_exit,omitempty"`   // Over the tailnet: drop the forward when the requesting process exits
 }
 
-// BatchForwardRequest represents a request to forward several ports at once
-// over a single SSH connection. ConnectionInfo and SocketPath are shared by
-// every port in the batch.
-type BatchForwardRequest struct {
-	ConnectionInfo string             `json:"connection_info"`       // SSH connection identifier (hostname, user@host, etc.)
-	SocketPath     string             `json:"socket_path,omitempty"` // Optional: specific control socket path
-	Forwards       []BatchForwardPort `json:"forwards"`              // Ports to forward
-}
-
-// BatchForwardPort is a single port entry within a BatchForwardRequest.
+// BatchForwardPort is a single port entry within a SyncRequest.
 type BatchForwardPort struct {
 	RemotePort  int    `json:"remote_port"`            // Port on remote machine
 	LocalPort   int    `json:"local_port,omitempty"`   // Port on local machine (0 = same as remote)
@@ -135,12 +118,7 @@ type BatchForwardPort struct {
 	ProcessCwd  string `json:"process_cwd,omitempty"`  // Working directory of the process
 }
 
-// BatchForwardResponse reports the per-port outcome of a BatchForwardRequest.
-type BatchForwardResponse struct {
-	Results []BatchForwardResult `json:"results"`
-}
-
-// BatchForwardResult is the outcome of forwarding a single port in a batch.
+// BatchForwardResult is the outcome of forwarding a single port in a sync.
 type BatchForwardResult struct {
 	RemotePort int    `json:"remote_port"`
 	LocalPort  int    `json:"local_port"`

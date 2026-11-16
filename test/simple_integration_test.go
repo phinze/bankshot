@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -257,26 +256,4 @@ func TestConcurrentConnections(t *testing.T) {
 	if successCount != numConnections {
 		t.Errorf("Not all connections succeeded: %d/%d", successCount, numConnections)
 	}
-}
-
-// TestMockSSHIntegration tests integration with mock SSH
-func TestMockSSHIntegration(t *testing.T) {
-	mock := NewMockSSH(t)
-
-	// Test that mock SSH script works
-	t.Run("MockSSHCommands", func(t *testing.T) {
-		// Test forward command
-		cmd := exec.Command(mock.Path(), "-O", "forward", "-L", "8080:localhost:8080", "testhost")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Errorf("Mock SSH forward failed: %v, output: %s", err, output)
-		}
-
-		// Test cancel command
-		cmd = exec.Command(mock.Path(), "-O", "cancel", "-L", "8080:localhost:8080", "testhost")
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			t.Errorf("Mock SSH cancel failed: %v, output: %s", err, output)
-		}
-	})
 }

@@ -124,10 +124,7 @@ func TestLocalForwardUntilExit(t *testing.T) {
 		}
 	}()
 	client := &localDaemonClient{network: "tcp", address: daemonLn.Addr().String(), logger: logger}
-	sm, err := monitor.NewSessionMonitor(monitor.SessionConfig{SessionID: "test", DaemonClient: client, Logger: logger, PortEventSource: quietSource{}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	sm := monitor.NewSessionMonitor(monitor.SessionConfig{SessionID: "test", DaemonClient: client, Logger: logger})
 	m := &Monitor{logger: logger, config: cfg, sessionMonitor: sm}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -172,9 +169,3 @@ sys.stdout.write(s.makefile().readline())`
 		t.Errorf("daemon got %s, want unforward", got)
 	}
 }
-
-// quietSource is a port event source that never reports anything.
-type quietSource struct{}
-
-func (quietSource) Start(context.Context) error      { return nil }
-func (quietSource) Events() <-chan monitor.PortEvent { return nil }

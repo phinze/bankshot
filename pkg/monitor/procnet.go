@@ -3,7 +3,6 @@ package monitor
 import (
 	"bufio"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -154,33 +153,6 @@ func parseState(hexState string) string {
 	return "UNKNOWN"
 }
 
-func getListeningPortsFromProc(tcpPath, tcp6Path string) ([]Port, error) {
-	var allPorts []Port
-	var readErrors []error
-
-	// Parse TCP ports
-	tcpPorts, err := parseProcNet(tcpPath, "tcp")
-	if err == nil {
-		allPorts = append(allPorts, tcpPorts...)
-	} else {
-		readErrors = append(readErrors, fmt.Errorf("read %s: %w", tcpPath, err))
-	}
-
-	// Parse TCP6 ports
-	tcp6Ports, err := parseProcNet(tcp6Path, "tcp6")
-	if err == nil {
-		allPorts = append(allPorts, tcp6Ports...)
-	} else {
-		readErrors = append(readErrors, fmt.Errorf("read %s: %w", tcp6Path, err))
-	}
-
-	if len(readErrors) == 2 {
-		return nil, fmt.Errorf("failed to read TCP socket tables: %w", errors.Join(readErrors...))
-	}
-
-	return allPorts, nil
-}
-
 // parseHexAddr decodes the hex IP address from /proc/net/tcp{,6} format.
 // IPv4 (/proc/net/tcp): 8 hex chars, little-endian 32-bit integer.
 // IPv6 (/proc/net/tcp6): 32 hex chars, four little-endian 32-bit words.
@@ -210,16 +182,6 @@ func parseHexAddr(hexStr string, protocol string) string {
 	}
 
 	return ""
-}
-
-// IsLocalAddr returns true if the address is a wildcard or loopback address
-// that should be considered for port forwarding.
-func IsLocalAddr(addr string) bool {
-	switch addr {
-	case "0.0.0.0", "127.0.0.1", "::", "::1":
-		return true
-	}
-	return false
 }
 
 // ResolveProcessName returns the process name for a given PID.

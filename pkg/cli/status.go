@@ -69,10 +69,9 @@ func newStatusCmd() *cobra.Command {
 
 const monitorUnit = "bankshot-monitor.service"
 
-// monitorScope reports which systemctl scope owns the monitor unit. eBPF port
-// monitoring needs capabilities, and systemd can only hand those to a system
-// unit, so an eBPF install runs the monitor as a system service while a
-// polling install runs it as a user service. Look in both rather than assume.
+// monitorScope reports which systemctl scope owns the monitor unit: the NixOS
+// module runs it as a system service, the home-manager module as a user
+// service. Look in both rather than assume.
 // Falling back to the user scope keeps an absent unit reporting as "not
 // running" rather than as an error.
 func monitorScope() string {

@@ -27,15 +27,16 @@ var (
 func newWrapCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "wrap [flags] -- <command> [args...]",
-		Short: "Wrap a command and auto-forward its ports",
-		Long: `Wraps a command and automatically forwards any ports it binds via SSH.
-The wrapped process will be monitored for port bindings, and those ports
-will be automatically forwarded through the bankshot daemon.
+		Short: "Run a command and forward the ports it opens",
+		Long: `Runs a command and forwards each port it or its children listen on,
+for as long as it runs. The command also gets BROWSER and DISPLAY set so
+that tools like gcloud open their login page on your laptop, which makes
+wrap the way to run an OAuth login whose callback listens on a local port.
 
 Examples:
   bankshot wrap -- npm run dev
   bankshot wrap -- python -m http.server 8080
-  bankshot wrap -c myserver -- ./myapp --port 3000`,
+  DISPLAY=1 bankshot wrap -- gcloud auth login --update-adc`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if verbose {
@@ -137,7 +138,7 @@ Examples:
 						} else if resp.Success {
 							ourForwardedPorts[event.Port] = true
 							if verbose {
-								fmt.Printf("Auto-forwarded port %d\n", event.Port)
+								fmt.Printf("Forwarded port %d\n", event.Port)
 							}
 						}
 					case monitor.PortClosed:
@@ -222,7 +223,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVarP(&wrapConnection, "connection", "c", "", "SSH connection identifier")
+	cmd.Flags().StringVarP(&wrapConnection, "connection", "c", "", "Remote host name (default: this host's hostname)")
 	cmd.Flags().IntVarP(&wrapMonitorInterval, "poll-interval", "p", 500, "Port monitoring interval in milliseconds")
 
 	return cmd

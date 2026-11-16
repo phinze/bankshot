@@ -43,8 +43,8 @@ func (n *Notifier) NotifyForward(remotePort, localPort int, host, processName, p
 
 // NotifyForwards posts a single notification covering one or more forwards.
 // A lone forward gets the detailed treatment (process context + a clickable
-// URL); multiple forwards are rolled up into one summary so an initial SSH
-// connection that lights up a dozen ports doesn't bury the user in toasts.
+// URL); multiple forwards are rolled up into one summary so a command that
+// opens a dozen ports doesn't bury the user in toasts.
 func (n *Notifier) NotifyForwards(connectionInfo string, events []ForwardEvent) {
 	if n.helperPath == "" {
 		n.logger.Debug("Skipping notification, no helper configured")

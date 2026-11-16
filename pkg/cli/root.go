@@ -16,7 +16,7 @@ func NewRootCmd() *cobra.Command {
 		Short: "Bankshot client - opens URLs and manages port forwards",
 		Long: `Bankshot client communicates with the bankshot daemon to:
 - Open URLs in your local browser from remote sessions
-- Manage SSH port forwards dynamically
+- Forward ports on request (bankshot forward, bankshot wrap)
 - Check daemon status`,
 		Version:      version.GetFullVersion(),
 		SilenceUsage: true,
@@ -30,7 +30,6 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newUnforwardCmd())
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newListCmd())
-	rootCmd.AddCommand(newReconcileCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newWrapCmd())
 	rootCmd.AddCommand(newMonitorCmd())

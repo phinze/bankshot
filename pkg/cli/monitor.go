@@ -21,8 +21,10 @@ func newMonitorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "monitor",
 		Short: "Run the bankshot monitor (used by systemd)",
-		Long: `Run the bankshot monitor process. This command is typically called by systemd
-on remote servers to automatically detect and forward ports.
+		Long: `Run the bankshot monitor process. It runs on remote servers, usually under
+systemd, and carries this host's requests to the laptop daemon over the
+tailnet: opening URLs, paste, the op proxy, the ssh agent, and the ports
+bankshot forward and bankshot wrap ask for.
 
 For manual control, use systemctl:
   systemctl --user start bankshot-monitor    # Start monitor
@@ -33,7 +35,6 @@ For manual control, use systemctl:
 	}
 
 	cmd.AddCommand(newMonitorRunCmd())
-	cmd.AddCommand(newMonitorReconcileCmd())
 
 	return cmd
 }
@@ -85,49 +86,5 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("monitor failed: %w", err)
 	}
 
-	return nil
-}
-
-func newMonitorReconcileCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "reconcile",
-		Short: "Run a one-shot reconciliation of port forwards",
-		Long: `Reconcile queries the laptop daemon for existing forwards and compares
-them with ports actually listening on this VM. It then:
-- Requests forwards for VM ports that aren't forwarded
-- Removes forwards for ports that aren't listening on the VM
-
-This is useful to run after SSH reconnection to restore forwards.
-
-Example SSH config to run on connect:
-  Host your-vm
-    RemoteCommand bankshot monitor reconcile 2>/dev/null || true
-`,
-		RunE: runMonitorReconcile,
-	}
-
-	cmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
-
-	return cmd
-}
-
-func runMonitorReconcile(cmd *cobra.Command, args []string) error {
-	// Create monitor configuration
-	cfg := daemon.Config{
-		LogLevel: logLevel,
-	}
-
-	// Create monitor instance
-	d, err := daemon.NewMonitor(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create monitor: %w", err)
-	}
-
-	// Run reconciliation
-	if err := d.Reconcile(); err != nil {
-		return fmt.Errorf("reconciliation failed: %w", err)
-	}
-
-	fmt.Println("Reconciliation completed successfully")
 	return nil
 }

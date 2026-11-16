@@ -85,7 +85,7 @@ If local-port is not specified, it defaults to the same as remote-port.`,
 	}
 
 	cmd.Flags().StringVarP(&forwardHost, "host", "H", "localhost", "Remote host to forward from")
-	cmd.Flags().StringVarP(&forwardConnection, "connection", "c", "", "SSH connection identifier (e.g., hostname used in ssh command)")
+	cmd.Flags().StringVarP(&forwardConnection, "connection", "c", "", "Remote host name (default: this host's hostname)")
 
 	return cmd
 }

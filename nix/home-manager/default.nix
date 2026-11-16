@@ -14,19 +14,8 @@ with lib; let
     network = "unix";
     address = "~/.bankshot.sock";
     log_level = cfg.daemon.logLevel;
-    ssh_command = "ssh";
   } // lib.optionalAttrs (cfg.notifyPackage != null) {
     notify_command = "${config.home.homeDirectory}/Applications/BankshotNotify.app/Contents/MacOS/bankshot-notify";
-  } // {
-    monitor = {
-      portRanges = cfg.monitor.portRanges;
-      ignorePorts = cfg.monitor.ignorePorts;
-      ignoreProcesses = cfg.monitor.ignoreProcesses;
-      pollInterval = cfg.monitor.pollInterval;
-      gracePeriod = cfg.monitor.gracePeriod;
-      batchWindow = cfg.monitor.batchWindow;
-      autoForward = cfg.monitor.autoForward;
-    };
   } // lib.optionalAttrs cfg.opProxy.enabled {
     op_proxy = {
       enabled = cfg.opProxy.enabled;
@@ -41,7 +30,7 @@ with lib; let
   configFile = yamlFormat.generate "bankshot-config.yaml" configData;
 in {
   options.programs.bankshot = {
-    enable = mkEnableOption "bankshot - automatic SSH port forwarding";
+    enable = mkEnableOption "bankshot - open URLs, paste, op and ssh-agent from remote hosts, and forward ports on request";
 
     package = mkOption {
       type = types.package;
@@ -170,81 +159,6 @@ in {
         default = "info";
         description = "Log level for the daemon";
       };
-
-      executablePath = mkOption {
-        type = types.nullOr types.str;
-        default = null;
-        description = ''
-          Override the path to the bankshot executable used by the daemon service.
-          Set this to a capability-wrapped binary path (e.g. /run/wrappers/bin/bankshot)
-          to enable eBPF support. When null, uses the package binary directly.
-        '';
-      };
-    };
-
-    monitor = {
-      autoForward = mkOption {
-        type = types.bool;
-        default = true;
-        description = ''
-          Whether bankshot monitor forwards listening ports on its own. When
-          false, only ports asked for with `bankshot forward` or
-          `bankshot wrap` are forwarded, and the monitor's other jobs (the
-          relay, URL opening, paste, the op proxy and the ssh-agent socket)
-          carry on as before.
-        '';
-      };
-
-      portRanges = mkOption {
-        type = types.listOf (types.submodule {
-          options = {
-            start = mkOption {
-              type = types.int;
-              description = "Start of port range";
-            };
-            end = mkOption {
-              type = types.int;
-              description = "End of port range";
-            };
-          };
-        });
-        default = [];
-        description = ''
-          Port ranges to automatically forward. When empty (default), all
-          non-privileged ports (>= 1024) are forwarded. Set explicitly to
-          restrict to specific ranges.
-        '';
-      };
-
-      ignorePorts = mkOption {
-        type = types.listOf types.int;
-        default = [];
-        description = "Specific ports to never auto-forward (applies to bankshot monitor on remote servers)";
-      };
-
-      ignoreProcesses = mkOption {
-        type = types.listOf types.str;
-        default = ["sshd" "systemd" "ssh-agent" "/\\.test$/"];
-        description = "Processes to ignore for port forwarding (applies to bankshot monitor on remote servers)";
-      };
-
-      pollInterval = mkOption {
-        type = types.str;
-        default = "5s";
-        description = "Polling interval for process discovery (applies to bankshot monitor on remote servers)";
-      };
-
-      gracePeriod = mkOption {
-        type = types.str;
-        default = "30s";
-        description = "Grace period before removing forwards after port close (applies to bankshot monitor on remote servers)";
-      };
-
-      batchWindow = mkOption {
-        type = types.str;
-        default = "500ms";
-        description = "Window to coalesce a burst of newly-opened ports into a single forward request and one rolled-up notification. Set to \"0\" to forward each port immediately (applies to bankshot monitor on remote servers).";
-      };
     };
 
     settings = mkOption {
@@ -277,17 +191,7 @@ in {
     };
   };
 
-  config = mkIf cfg.enable (let
-    daemonExe = if cfg.daemon.executablePath != null
-      then cfg.daemon.executablePath
-      else "${cfg.package}/bin/bankshot";
-    # When using a capability-wrapped binary for eBPF, we must disable all
-    # mount-namespace sandboxing. User systemd instances lack CAP_SYS_ADMIN,
-    # so any mount namespace feature (ProtectSystem, PrivateTmp, ProtectHome)
-    # triggers CLONE_NEWUSER, placing the process in a non-init user namespace
-    # where CAP_BPF is not recognized by the kernel.
-    ebpfMode = cfg.daemon.executablePath != null;
-  in {
+  config = mkIf cfg.enable {
     home.packages = [cfg.package]
       ++ lib.optional cfg.enableXdgOpen (pkgs.runCommand "bankshot-xdg-open" {} ''
         mkdir -p $out/bin
@@ -361,7 +265,7 @@ in {
     # Systemd user service for monitor (Linux remote servers)
     systemd.user.services.bankshot-monitor = mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isLinux) {
       Unit = {
-        Description = "Bankshot monitor - automatic port forwarding";
+        Description = "Bankshot monitor - carries requests to the laptop over the tailnet";
         Documentation = "https://github.com/phinze/bankshot";
         After = ["network.target"];
         X-Restart-Triggers = [ "${cfg.package}" ];
@@ -369,23 +273,21 @@ in {
 
       Service = {
         Type = "notify";
-        ExecStart = "${daemonExe} monitor run --systemd --log-level ${cfg.daemon.logLevel}";
+        ExecStart = "${cfg.package}/bin/bankshot monitor run --systemd --log-level ${cfg.daemon.logLevel}";
         Restart = "on-failure";
         RestartSec = "5s";
 
-        # Security hardening — disabled in eBPF mode (see ebpfMode comment above)
-        PrivateTmp = !ebpfMode;
-        ProtectSystem = if ebpfMode then false else "strict";
-        ProtectHome = if ebpfMode then false else "read-only";
-        ReadWritePaths = lib.mkIf (!ebpfMode) [
+        # Security hardening
+        PrivateTmp = true;
+        ProtectSystem = "strict";
+        ProtectHome = "read-only";
+        ReadWritePaths = [
           "%h/.config/bankshot"
         ];
 
         # Resource limits
         MemoryMax = "256M";
         CPUQuota = "20%";
-        # Allow eBPF memlock when using capability-wrapped binary
-        LimitMEMLOCK = "infinity";
 
         # Environment
         Environment = [
@@ -402,5 +304,5 @@ in {
     xdg.configFile."bankshot/config.yaml" = {
       source = configFile;
     };
-  });
+  };
 }

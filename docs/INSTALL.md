@@ -17,16 +17,10 @@ brew services start bankshot
 
 ### Post-Install Setup
 
-1. **Configure SSH ControlMaster**
+1. **Connect your remote hosts**
    
-   Add to your `~/.ssh/config`:
-   ```
-   Host *
-       ControlMaster auto
-       ControlPath /tmp/ssh-%r@%h:%p
-       ControlPersist 10m
-       RemoteForward ~/.bankshot.sock ~/.bankshot.sock
-   ```
+   Over Tailscale (needed for port forwards), or with an ssh
+   `RemoteForward` of the socket; the README's Quick Start shows both.
 
 2. **Verify Installation**
    
@@ -125,7 +119,6 @@ mkdir -p ~/.config/bankshot
 cat > ~/.config/bankshot/config.yaml << EOF
 network: unix
 address: "~/.bankshot.sock"
-ssh_command: ssh
 log_level: info
 EOF
 ```
@@ -164,7 +157,7 @@ launchctl load ~/Library/LaunchAgents/com.github.phinze.bankshot.plist
 
 ## Usage After Installation
 
-Once installed and configured, you can use bankshot from any SSH session:
+Once installed and configured, you can use bankshot from a remote session:
 
 ```bash
 # On your remote server

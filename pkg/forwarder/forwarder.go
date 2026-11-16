@@ -1,6 +1,6 @@
 // Package forwarder makes ports on a remote machine reachable on this one.
-// Each implementation is a transport: SSHForwarder rides an existing SSH
-// ControlMaster, and the daemon picks one by how a request reached it.
+// TailnetForwarder is the one transport: it relays each forward to the
+// remote's bankshot monitor over Tailscale.
 package forwarder
 
 import "time"
@@ -23,15 +23,10 @@ type Forwarder interface {
 
 // Target names the remote end a set of forwards comes from.
 type Target struct {
-	// ConnectionInfo identifies the remote machine. For SSH it's the host
-	// alias the ControlMaster was opened with; for the tailnet it's the
-	// node name tailscale whois reported for the caller.
+	// ConnectionInfo identifies the remote machine: the node name
+	// tailscale whois reported for the caller.
 	ConnectionInfo string
-	// SocketPath is the SSH control socket, resolved from ConnectionInfo
-	// when empty. Other transports ignore it.
-	SocketPath string
-	// Address is where the tailnet transport reaches the remote: the
-	// caller's tailnet IP. SSH ignores it.
+	// Address is where the remote is reached: the caller's tailnet IP.
 	Address string
 }
 
@@ -54,7 +49,6 @@ type Forward struct {
 	RemotePort     int
 	LocalPort      int
 	Host           string
-	SocketPath     string
-	ConnectionInfo string // SSH connection target (e.g., hostname)
+	ConnectionInfo string // remote's tailnet node name
 	CreatedAt      time.Time
 }

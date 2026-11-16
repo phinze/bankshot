@@ -1,7 +1,4 @@
 package monitor
 
-// Compile-time checks that our monitors satisfy PortEventSource.
-var (
-	_ PortEventSource = (*Monitor)(nil)
-	_ PortEventSource = (*SystemMonitor)(nil)
-)
+// Compile-time check that the polling monitor satisfies PortEventSource.
+var _ PortEventSource = (*Monitor)(nil)

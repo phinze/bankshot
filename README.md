@@ -1,24 +1,28 @@
 # bankshot
 
-Open URLs and manage SSH port forwards from remote development environments.
+Reach back to your laptop from remote development environments: open URLs in
+your local browser, paste clipboard images, use your local 1Password CLI and ssh
+agent, and forward ports on demand.
 
 ## Overview
 
-`bankshot` enables you to:
-- Open URLs in your local browser from SSH sessions
-- Forward ports dynamically for OAuth flows and development servers
-- Auto-forward ports automatically when running `bankshot monitor` on remote servers
-- Paste your laptop's clipboard images, use its 1Password CLI, and sign with its ssh agent
+`bankshot` lets a remote session:
+- Open URLs in your local browser
+- Forward the ports a command opens (`bankshot wrap`), or individual ports
+  (`bankshot forward`), for OAuth logins and dev servers
+- Paste clipboard images, run `op` against your local 1Password CLI, and sign
+  with your local ssh agent
 
-Components:
-- **Local daemon**: Runs on your laptop, opens URLs and holds the port forwards
-- **bankshot monitor**: Runs on remote servers, watches for listening ports and passes the CLI's requests on to the daemon
-- **bankshot CLI**: Used on the remote server for manual operations
+Three pieces make this work:
+- **Local daemon**: Runs on your laptop, opens URLs, and listens on forwarded ports
+- **bankshot monitor**: Runs on the remote, sends CLI requests to the daemon, and relays forwarded connections
+- **bankshot CLI**: Runs on the remote to trigger actions manually
 
-The remote server reaches the daemon one of two ways: over an ssh
-`RemoteForward` of the daemon's socket, or directly over Tailscale. The ssh
-bridge is the simple setup. The tailnet keeps working with no ssh session up,
-which suits a remote you reach some other way (Rex, mosh, a web terminal).
+The remote talks to the daemon over Tailscale. Because it doesn't rely on an
+active ssh connection, it works just as well over Rex, mosh, or a web terminal.
+If you don't use Tailscale, an ssh `RemoteForward` of the daemon's socket still
+handles opening URLs, pasting, and `op`, though port forwarding requires a
+tailnet.
 
 ## Installation
 
@@ -48,18 +52,7 @@ Need help? Check [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common i
 
 ### 1. Connect the remote to your laptop
 
-**Over ssh.** Add to your `~/.ssh/config`:
-
-```
-Host *
-    ControlMaster auto
-    ControlPath /tmp/ssh-%r@%h:%p
-    ControlPersist 10m
-    RemoteForward ~/.bankshot.sock ~/.bankshot.sock
-```
-
-**Over Tailscale.** Both machines need to be on the same tailnet. On the
-laptop, let the remote's node in:
+Put both machines on the same tailnet. On your laptop, allow the remote node:
 
 ```yaml
 # laptop: ~/.config/bankshot/config.yaml
@@ -68,7 +61,8 @@ tailnet:
   allow: [devbox]          # tailscale logins, node names, or tags
 ```
 
-On the remote, point at the laptop's node and run `bankshot monitor`:
+On the remote, point the config at your laptop and start `bankshot monitor` (it
+requires `tailnet.enabled` to run):
 
 ```yaml
 # remote: ~/.config/bankshot/config.yaml
@@ -79,13 +73,20 @@ tailnet:
   allow: [you@github]      # who may use the forwards the laptop opens
 ```
 
-See [Over Tailscale](#over-tailscale) for how it fits together.
+See [Architecture](#architecture) for how the pieces fit together.
+
+**Without Tailscale**, you can forward the daemon's socket over ssh to open
+URLs, paste, and use `op`. Port forwarding won't work in this mode.
+
+```
+Host devbox
+    RemoteForward ~/.bankshot.sock ~/.bankshot.sock
+```
 
 ### 2. Basic Commands
 
-Once you're running the daemon locally and have SSH configured, on a remote SSH
-server w/ Bankshot installed you can use the CLI to perform actions on your
-local machine:
+With the daemon running on your laptop and the monitor on the remote, use the
+CLI there to act on your laptop:
 
 ```bash
 # Open URL in local browser
@@ -94,7 +95,7 @@ bankshot open https://github.com
 # Forward a port
 bankshot forward 8080
 
-# Auto-forward ports for a command
+# Forward the ports a command opens, until it exits
 bankshot wrap -- npm run dev
 
 # Save the screenshot or recording on your local clipboard here, and print its path
@@ -105,35 +106,6 @@ bankshot status
 ```
 
 ## Architecture
-
-```
-┌────────────────────┐                 ┌────────────────────┐
-│   Local Machine    │                 │  Remote Server     │
-│                    │                 │                    │
-│ ┌────────────────┐ │                 │ ┌────────────────┐ │
-│ │   Web Browser  │ │                 │ │ bankshot       │ │
-│ └─▲──────────────┘ │                 │ │  monitor       │ │
-│   │ Open URL       │                 │ │  - Auto-fwd    │ │
-│ ┌─┴──────────────┐ │                 │ └─┬──────────────┘ │
-│ │ Local Daemon   │ │                 │   │ Send requests  │
-│ │ - URL opener   │ │                 │   │                │
-│ │ - Port forward │ │                 │ ┌─┴──────────────┐ │
-│ │ - SSH executor │ │                 │ │bankshot (CLI)  │ │
-│ └─┬──────────────┘ │                 │ │ Manual control │ │
-│   │                │                 │ └─┬──────────────┘ │
-│ ┌─┴──────────────┐ │ SSH connection  │ ┌─▼──────────────┐ │
-│ │~/.bankshot.sock│ ├─────────────────► │~/.bankshot.sock│ │
-│ └────────────────┘ │ Remote forward  │ └────────────────┘ │
-│                    │                 │                    │
-└────────────────────┘                 └────────────────────┘
-```
-
-- **Local Daemon**: Runs on laptop, handles URL opening and SSH port forward execution
-- **bankshot monitor**: Runs on remote server, monitors processes and auto-forwards ports
-- **CLI**: Manual control from remote SSH sessions
-- **Communication**: JSON over Unix socket (forwarded via SSH)
-
-### Over Tailscale
 
 ```
 ┌──────────────────────────┐   tailnet    ┌──────────────────────────┐
@@ -174,80 +146,39 @@ monitor serves an ssh agent there, backed by the laptop's (`ssh_agent` in
 the daemon's config), limited to listing keys and signing. And the op proxy
 (`enableOpProxy`) sends `op` to the laptop's 1Password CLI.
 
-### Auto-Discovery of Existing Forwards
+### Forwarding ports
 
-When the daemon starts, it automatically discovers and registers any existing SSH port forwards. This means:
+`bankshot` only forwards ports when you ask it to, binding them to your
+laptop's loopback interface.
 
-- If you restart the daemon, it won't lose track of your active forwards
-- Forwards created before the daemon started are automatically detected
-- The daemon scans for SSH ControlMaster processes and their listening ports
-- Discovery happens on startup and registers forwards without re-executing SSH commands
+To forward ports for a single command, run `bankshot wrap -- CMD`. Any port the
+command or its child processes start listening on is forwarded until the command
+exits, while ports opened by unrelated processes are ignored.
 
-This ensures seamless integration with your existing SSH workflows and prevents forward duplication.
-
-### Automatic Port Forwarding with bankshot monitor
-
-On remote servers, `bankshot monitor` automatically forwards ports without needing `bankshot wrap`:
-
-- Monitors all processes owned by your user on the remote server
-- Automatically detects when processes bind to ports
-- Only forwards ports bound to local/wildcard addresses (`0.0.0.0`, `127.0.0.1`, `::`, `::1`) — skips ports bound to Tailscale, LAN, or other non-local interfaces
-- Requests forwards from the local daemon immediately
-- Cleans up forwards when processes exit (after a grace period)
-- Can be told not to (`autoForward: false`), forwarding only what `bankshot forward` and `bankshot wrap` ask for
-
-**Setup:**
-
-1. Install bankshot on your remote servers
-2. Start `bankshot monitor` (via systemd or manually)
-3. Any port your processes bind to (all non-privileged ports by default) will be automatically forwarded
-
-**Configuration:**
-
-Configure `bankshot monitor` behavior in `~/.config/bankshot/config.yaml`:
-
-```yaml
-monitor:
-  # By default, all non-privileged ports (>= 1024) are auto-forwarded.
-  # To restrict to specific ranges, uncomment:
-  # portRanges:
-  #   - start: 3000
-  #     end: 9999
-  ignorePorts: []        # specific ports to never auto-forward
-  ignoreProcesses:
-    - sshd
-    - systemd
-    - ssh-agent
-  pollInterval: 1s
-  gracePeriod: 30s
-  batchWindow: 500ms     # coalesce a burst of new ports into one forward + one notification (0 = immediate)
-  autoForward: true      # false: forward only what bankshot forward/wrap ask for
-```
-
-Set `autoForward: false` to keep the monitor for everything else it does
-(opening URLs, paste, the op proxy, the ssh-agent socket) while forwarding
-only the ports you ask for with `bankshot forward` or `bankshot wrap`.
-
-With NixOS/home-manager, configure via `programs.bankshot.monitor.*` options.
+To manage ports manually, `bankshot forward PORT` opens a forward until you run
+`bankshot unforward PORT`. Use `bankshot forward REMOTE:LOCAL` to bind a
+different local port, and `bankshot list` to see active forwards.
 
 ## Usage Examples
 
 ### OAuth Flow
 
-If you shadow the xdg-open command, you can get tools like gcloud to route browser open requests through bankshot:
+CLI login flows like `gcloud auth login` typically open a browser and spin up a
+local server to catch the OAuth callback. Running the login under `wrap` sets
+`BROWSER` (to `bankshot open`) and `DISPLAY=1` so the link opens on your laptop,
+while automatically forwarding the callback port until the login finishes:
 
 ```bash
-# Shadow xdg-open with bankshot
-sudo ln -s $(which bankshot) /usr/local/bin/xdg-open
-
-# When OAuth tool needs browser authentication, the browser will open locally
-# and ports will be forwarded automatically
-$ bankshot wrap -- gcloud auth login
+$ DISPLAY=1 bankshot wrap -- gcloud auth login --update-adc
 ```
+
+If a tool calls `xdg-open` directly instead of checking `BROWSER`, you can
+symlink `xdg-open` to `bankshot` (or set `enableXdgOpen` in the Home Manager
+module) to send those URLs to your laptop too.
 
 ### Development Server
 ```bash
-# Auto-forward all ports
+# Forward the ports the dev server opens
 $ bankshot wrap -- npm run dev
 
 # Or manually forward specific port

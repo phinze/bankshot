@@ -12,20 +12,14 @@ import (
 	"github.com/phinze/bankshot/pkg/protocol"
 )
 
-// newPinTestMonitor returns a monitor whose processes are all named "" and
-// have the start times in starts; a pid missing from starts isn't running.
+// newPinTestMonitor returns a monitor whose processes have the start times
+// in starts; a pid missing from starts isn't running.
 func newPinTestMonitor(client DaemonClient, starts map[int]string) *SessionMonitor {
-	sm, _ := NewSessionMonitor(SessionConfig{
-		SessionID:       "test",
-		DaemonClient:    client,
-		IgnorePorts:     []int{9000},
-		GracePeriod:     0,
-		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
-		PortEventSource: &mockPortEventSource{},
+	sm := NewSessionMonitor(SessionConfig{
+		SessionID:    "test",
+		DaemonClient: client,
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
-	sm.resolveProcessName = func(int) string { return "" }
-	sm.resolveProcessCwd = func(int) string { return "" }
-	sm.resolveParentPID = func(int) int { return 0 }
 	sm.resolveStartTime = func(pid int) string { return starts[pid] }
 	return sm
 }
@@ -48,12 +42,11 @@ func syncedPorts(t *testing.T, client *mockDaemonClient) map[int]int {
 	return ports
 }
 
-func TestPinSkipsFiltersAndRidesSync(t *testing.T) {
+func TestPinRidesSync(t *testing.T) {
 	client := &mockDaemonClient{}
 	sm := newPinTestMonitor(client, nil)
 
-	// 9000 is ignored and 80 is privileged; a pin forwards both anyway,
-	// and nothing has to be listening yet.
+	// Nothing has to be listening yet, and a privileged port is fine.
 	if err := sm.Pin(9000, 0, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -70,76 +63,6 @@ func TestPinSkipsFiltersAndRidesSync(t *testing.T) {
 	_, _ = sm.Sync()
 	if got := syncedPorts(t, client); got[9000] != 9000 || got[80] != 8080 {
 		t.Errorf("synced %v, want 9000->9000 and 80->8080", got)
-	}
-}
-
-func TestPinOutlivesItsPortClosing(t *testing.T) {
-	client := &mockDaemonClient{}
-	sm := newPinTestMonitor(client, nil)
-
-	sm.handlePortEvent(PortEvent{Type: PortOpened, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
-	if err := sm.Pin(5000, 0, 0); err != nil {
-		t.Fatal(err)
-	}
-	// GetListeningPorts won't list 5000, so the close counts.
-	sm.handlePortEvent(PortEvent{Type: PortClosed, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
-	sm.cleanupPendingRemovals()
-
-	if n := len(client.requestsOfType(protocol.CommandUnforward)); n != 0 {
-		t.Errorf("sent %d unforwards for a pinned port", n)
-	}
-	if !sm.Forwarding(5000) {
-		t.Error("pinned port stopped forwarding when its server closed")
-	}
-}
-
-func TestUnpinKeepsAnAutoForward(t *testing.T) {
-	client := &mockDaemonClient{}
-	sm := newPinTestMonitor(client, nil)
-
-	sm.handlePortEvent(PortEvent{Type: PortOpened, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
-	if err := sm.Pin(5000, 0, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err := sm.Unpin(5000); err != nil {
-		t.Fatal(err)
-	}
-	if n := len(client.requestsOfType(protocol.CommandUnforward)); n != 0 {
-		t.Errorf("sent %d unforwards for a port still forwarded automatically", n)
-	}
-	if !sm.Forwarding(5000) {
-		t.Error("auto-forwarded port stopped forwarding after unpin")
-	}
-	if err := sm.Unpin(5000); err == nil {
-		t.Error("unpinning an auto-forward that was never pinned should say why it stays")
-	}
-}
-
-func TestUnpinMovesAnAutoForwardBack(t *testing.T) {
-	client := &mockDaemonClient{}
-	sm := newPinTestMonitor(client, nil)
-
-	sm.handlePortEvent(PortEvent{Type: PortOpened, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
-	if err := sm.Pin(5000, 5432, 0); err != nil {
-		t.Fatal(err)
-	}
-	if n := len(client.requestsOfType(protocol.CommandUnforward)); n != 1 {
-		t.Errorf("sent %d unforwards, want 1 to move the auto-forward off 5000", n)
-	}
-	_, _ = sm.Sync()
-	if got := syncedPorts(t, client); got[5000] != 5432 {
-		t.Errorf("synced %v, want the pin's 5000->5432", got)
-	}
-
-	if err := sm.Unpin(5000); err != nil {
-		t.Fatal(err)
-	}
-	if n := len(client.requestsOfType(protocol.CommandUnforward)); n != 2 {
-		t.Errorf("sent %d unforwards, want a second for the pin's forward", n)
-	}
-	_, _ = sm.Sync()
-	if got := syncedPorts(t, client); got[5000] != 5000 {
-		t.Errorf("synced %v, want the auto-forward's 5000->5000 back", got)
 	}
 }
 
@@ -219,53 +142,20 @@ func TestPinRolledBackWhenDaemonFails(t *testing.T) {
 	}
 }
 
-func TestUnpinHandsOverAPortThatOpenedWhilePinned(t *testing.T) {
+func TestStartDropsForwardsWhenStopped(t *testing.T) {
 	client := &mockDaemonClient{}
 	sm := newPinTestMonitor(client, nil)
-
-	if err := sm.Pin(5000, 0, 0); err != nil {
-		t.Fatal(err)
-	}
-	sm.handlePortEvent(PortEvent{Type: PortOpened, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
-	if err := sm.Unpin(5000); err != nil {
-		t.Fatal(err)
-	}
-	sm.handlePortEvent(PortEvent{Type: PortClosed, Port: 5000, BindAddr: "127.0.0.1", Timestamp: time.Now()})
-	sm.cleanupPendingRemovals()
-
-	if n := len(client.requestsOfType(protocol.CommandUnforward)); n != 1 {
-		t.Errorf("sent %d unforwards once the auto-forward's port closed, want 1", n)
-	}
-}
-
-func TestManualOnlyForwardsPinsAndNothingElse(t *testing.T) {
-	client := &mockDaemonClient{}
-	sm, _ := NewSessionMonitor(SessionConfig{
-		SessionID:    "test",
-		DaemonClient: client,
-		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		ManualOnly:   true, // and no PortEventSource: Start mustn't need one
-	})
-	sm.resolveStartTime = func(int) string { return "" }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- sm.Start(ctx) }()
-
-	// Seed would otherwise forward whatever this machine is listening on.
-	if err := sm.Seed(); err != nil {
-		t.Fatal(err)
-	}
-	if n := len(client.requestsOfType(protocol.CommandForward)) + len(client.requestsOfType(protocol.CommandForwardBatch)); n != 0 {
-		t.Fatalf("seeded %d forwards with auto-forward off", n)
-	}
 
 	if err := sm.Pin(3000, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = sm.Sync()
 	if got := syncedPorts(t, client); len(got) != 1 || got[3000] != 3000 {
-		t.Errorf("synced %v, want only the pin 3000->3000", got)
+		t.Errorf("synced %v, want only 3000->3000", got)
 	}
 
 	cancel()
@@ -276,5 +166,8 @@ func TestManualOnlyForwardsPinsAndNothingElse(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Start didn't return after cancel")
+	}
+	if n := len(client.requestsOfType(protocol.CommandUnforward)); n != 1 {
+		t.Errorf("sent %d unforwards on stop, want 1", n)
 	}
 }

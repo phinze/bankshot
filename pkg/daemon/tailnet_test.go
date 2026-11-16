@@ -81,8 +81,8 @@ func TestTailnetPeerCommandGate(t *testing.T) {
 	if resp, err := protocol.ParseResponse(line); err != nil || resp.Success {
 		t.Errorf("clipboard file request the relay didn't vouch for = %s, want refused", line)
 	}
-	if resp := d.handleCommand(request(t, protocol.CommandReconcile, map[string]any{}), p); resp.Success {
-		t.Error("reconcile over the tailnet succeeded, want refused")
+	if resp := d.handleCommand(request(t, protocol.CommandType("reconcile"), map[string]any{}), p); resp.Success {
+		t.Error("an unknown command over the tailnet succeeded, want refused")
 	}
 	if resp := d.handleCommand(request(t, protocol.CommandSync, protocol.SyncRequest{}), nil); resp.Success {
 		t.Error("sync over the local socket succeeded, want refused")
@@ -99,12 +99,12 @@ func TestTailnetForwardsKeyedByWhois(t *testing.T) {
 	ln.Close()
 
 	p := &peer{node: "foxtrotbase", ip: "100.99.110.72"}
-	resp := d.handleCommand(request(t, protocol.CommandForwardBatch, protocol.BatchForwardRequest{
+	resp := d.handleCommand(request(t, protocol.CommandForward, protocol.ForwardRequest{
 		ConnectionInfo: "someone-else", // a peer can't claim another host's identity
-		Forwards:       []protocol.BatchForwardPort{{RemotePort: port}},
+		RemotePort:     port,
 	}), p)
 	if !resp.Success {
-		t.Fatalf("forward-batch failed: %s", resp.Error)
+		t.Fatalf("forward failed: %s", resp.Error)
 	}
 
 	forwards := d.listForwards()

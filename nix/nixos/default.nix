@@ -11,16 +11,10 @@ in {
   options.services.bankshot = {
     monitor = {
       enable = mkEnableOption ''
-        the bankshot monitor as a system service.
-
-        The monitor needs CAP_BPF and CAP_PERFMON to watch ports over eBPF,
-        and CAP_DAC_READ_SEARCH to read /proc for the processes that own
-        them. systemd grants those to this one process through
-        AmbientCapabilities, so ExecStart names the store path directly and
-        the unit fully describes what it runs.
-
-        Prefer this over the ebpf option below, which exists only because a
-        systemd *user* service cannot hold capabilities at all
+        the bankshot monitor as a system service. It runs as the given user
+        with no capabilities, and starts at boot rather than at login, so the
+        ssh agent and the other jobs it carries are there before anyone
+        attaches
       '';
 
       user = mkOption {
@@ -52,21 +46,6 @@ in {
       };
     };
 
-    ebpf = {
-      enable = mkEnableOption ''
-        eBPF capabilities for bankshot.
-        Creates a security wrapper with CAP_BPF and CAP_PERFMON so the
-        bankshot daemon can use eBPF-based port monitoring instead of polling.
-        Set programs.bankshot.daemon.executablePath to the wrapper path
-        (/run/wrappers/bin/bankshot) in your home-manager config.
-
-        Note that this leaves a setcap copy of bankshot in /run/wrappers that
-        any local user can exec, and that a unit pointed at that mutable path
-        no longer names the binary it runs, so it can silently drift a build
-        behind. services.bankshot.monitor above avoids both
-      '';
-    };
-
     package = mkOption {
       type = types.package;
       default =
@@ -74,23 +53,14 @@ in {
         then bankshotPackages.${pkgs.stdenv.hostPlatform.system}.default
         else throw "bankshot package must be provided when not using the flake module";
       defaultText = literalExpression "bankshot.packages.\${system}.default";
-      description = "The bankshot package to wrap with capabilities.";
+      description = "The bankshot package to run.";
     };
   };
 
   config = mkMerge [
-    (mkIf cfg.ebpf.enable {
-      security.wrappers.bankshot = {
-        source = "${cfg.package}/bin/bankshot";
-        capabilities = "cap_bpf,cap_perfmon,cap_dac_read_search=ep";
-        owner = "root";
-        group = "root";
-      };
-    })
-
     (mkIf cfg.monitor.enable {
       systemd.services.bankshot-monitor = {
-        description = "Bankshot monitor - automatic port forwarding";
+        description = "Bankshot monitor - carries requests to the laptop over the tailnet";
         documentation = ["https://github.com/phinze/bankshot"];
         wantedBy = ["multi-user.target"];
         # Tailnet forwarding asks tailscaled for this host's address and for
@@ -110,12 +80,7 @@ in {
           Restart = "on-failure";
           RestartSec = "5s";
 
-          AmbientCapabilities = ["CAP_BPF" "CAP_PERFMON" "CAP_DAC_READ_SEARCH"];
-          CapabilityBoundingSet = ["CAP_BPF" "CAP_PERFMON" "CAP_DAC_READ_SEARCH"];
-
-          # cilium/ebpf's RemoveMemlock() needs headroom the 8MB default
-          # does not give it.
-          LimitMEMLOCK = "infinity";
+          CapabilityBoundingSet = "";
 
           MemoryMax = "256M";
           CPUQuota = "20%";

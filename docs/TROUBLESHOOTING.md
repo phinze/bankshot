@@ -5,16 +5,17 @@
 ### "Failed to connect to daemon"
 - Check daemon is running: `bankshot status` or `brew services list`
 - Verify the local socket exists: `ls -la ~/.bankshot.sock`
-- Check SSH forward: `ssh -O check yourserver`
+- On the remote, check the monitor is running: `systemctl status bankshot-monitor`
 
 ### "Failed to forward port"
 - Port in use: `lsof -i :PORT`
 - Already forwarded: `bankshot list`
 - Try different port: `bankshot forward 8080:8081`
 
-### "No active SSH connection"
-- Ensure SSH ControlMaster is configured
-- Check control socket: `ls -la /tmp/ssh-*`
+### "port forwards ride the tailnet"
+- Forwards need `tailnet.enabled` in both the laptop's and the remote's
+  config, with the CLI talking to the remote's monitor rather than to an ssh
+  forwarded socket. See the README's Quick Start.
 
 ### Over Tailscale: forwards or requests refused
 - The daemon logs "Rejected tailnet connection" for each caller it turns away. A remote missing from the laptop's
@@ -25,8 +26,8 @@
 - Forwards vanish about six minutes after the monitor stops talking to the
   laptop (the lease). Check the monitor is running and that the laptop is
   awake and on the tailnet.
-- With `autoForward: false`, nothing is forwarded unless you ask with
-  `bankshot forward` or `bankshot wrap`.
+- Nothing is forwarded unless you ask, with `bankshot forward` or
+  `bankshot wrap`.
 
 ## Debug Mode
 ```bash
@@ -50,10 +51,7 @@ RemoteForward 127.0.0.1:61000 ~/.bankshot.sock
 # ~/.config/bankshot/config.yaml
 network: tcp
 address: 127.0.0.1:61000
-monitor:
-  ignorePorts: [61000]
 ```
 
-Reserve the bridge port in `ignorePorts` so the monitor never tries to forward
-its own transport. A loopback TCP port is reachable by other users on the
+A loopback TCP port is reachable by other users on the
 remote host, so prefer the Unix socket setup on shared systems.

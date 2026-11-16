@@ -23,15 +23,9 @@ type Config struct {
 	// LogLevel: debug, info, warn, error
 	LogLevel string `yaml:"log_level"`
 
-	// SSHCommand is the path to ssh binary
-	SSHCommand string `yaml:"ssh_command"`
-
 	// NotifyCommand is the path to the notification helper binary.
 	// When set, desktop notifications are posted for new port forwards.
 	NotifyCommand string `yaml:"notify_command,omitempty"`
-
-	// Monitor configuration (for bankshot monitor on remote servers)
-	Monitor MonitorConfig `yaml:"monitor,omitempty"`
 
 	// OpProxy configuration (for proxying 1Password CLI requests)
 	OpProxy OpProxyConfig `yaml:"op_proxy,omitempty"`
@@ -100,36 +94,6 @@ func (t TailnetConfig) HeartbeatDuration() time.Duration {
 	return 2 * time.Minute
 }
 
-// MonitorConfig represents the configuration for bankshot monitor
-type MonitorConfig struct {
-	PortRanges      []PortRange `yaml:"portRanges,omitempty"`
-	IgnorePorts     []int       `yaml:"ignorePorts,omitempty"`
-	IgnoreProcesses []string    `yaml:"ignoreProcesses,omitempty"`
-	PollInterval    string      `yaml:"pollInterval,omitempty"`
-	GracePeriod     string      `yaml:"gracePeriod,omitempty"`
-	// BatchWindow coalesces a burst of newly-opened ports into a single forward
-	// request (and a single rolled-up notification). Defaults to 500ms. Set to
-	// "0" to forward each port immediately as it's discovered.
-	BatchWindow string `yaml:"batchWindow,omitempty"`
-	// AutoForward controls whether the monitor watches for listening ports
-	// and forwards them on its own. Defaults to true. With it off, only
-	// ports asked for by hand (bankshot forward, bankshot wrap) are
-	// forwarded; the relay, agent socket, and other tailnet jobs carry on.
-	AutoForward *bool `yaml:"autoForward,omitempty"`
-}
-
-// AutoForwardEnabled reports whether the monitor should forward listening
-// ports on its own, which it does unless autoForward is set to false.
-func (m MonitorConfig) AutoForwardEnabled() bool {
-	return m.AutoForward == nil || *m.AutoForward
-}
-
-// PortRange defines a range of ports
-type PortRange struct {
-	Start int `yaml:"start"`
-	End   int `yaml:"end"`
-}
-
 // OpProxyConfig represents the configuration for proxying 1Password CLI requests
 type OpProxyConfig struct {
 	Enabled            bool     `yaml:"enabled"`
@@ -146,10 +110,9 @@ type OpProxyConfig struct {
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		Network:    "unix",
-		Address:    "~/.bankshot.sock",
-		LogLevel:   "info",
-		SSHCommand: "ssh",
+		Network:  "unix",
+		Address:  "~/.bankshot.sock",
+		LogLevel: "info",
 		OpProxy: OpProxyConfig{
 			Enabled:  false,
 			OpPath:   "op",

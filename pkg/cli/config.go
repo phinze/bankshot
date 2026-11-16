@@ -24,7 +24,6 @@ func newConfigCmd() *cobra.Command {
 			fmt.Println("Bankshot Configuration:")
 			fmt.Printf("  Network: %s\n", cfg.Network)
 			fmt.Printf("  Address: %s\n", cfg.Address)
-			fmt.Printf("  SSH Command: %s\n", cfg.SSHCommand)
 			fmt.Printf("  Log Level: %s\n", cfg.LogLevel)
 
 			if cfg.Network == "unix" {

@@ -76,20 +76,6 @@ func TestParseState(t *testing.T) {
 	}
 }
 
-func TestGetListeningPortsFromProcReturnsErrorWhenSocketTablesAreUnavailable(t *testing.T) {
-	missingDir := t.TempDir()
-	ports, err := getListeningPortsFromProc(
-		filepath.Join(missingDir, "tcp"),
-		filepath.Join(missingDir, "tcp6"),
-	)
-	if err == nil {
-		t.Fatal("getListeningPortsFromProc() expected an error")
-	}
-	if ports != nil {
-		t.Errorf("getListeningPortsFromProc() ports = %v, want nil", ports)
-	}
-}
-
 func TestParseProcNetInode(t *testing.T) {
 	testFile := filepath.Join(t.TempDir(), "tcp")
 	testData := `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
@@ -117,7 +103,7 @@ func TestResolvePortOwners(t *testing.T) {
 	link("100", "3", "socket:[111]")
 	link("100", "4", "/dev/null")
 	link("200", "7", "socket:[222]")
-	link("self", "3", "socket:[111]") // not a pid; must be skipped
+	link("self", "3", "socket:[111]")                                     // not a pid; must be skipped
 	if err := os.MkdirAll(filepath.Join(proc, "300"), 0755); err != nil { // no fd dir
 		t.Fatal(err)
 	}
@@ -134,5 +120,29 @@ func TestResolvePortOwners(t *testing.T) {
 		if p.PID != want[p.Port] {
 			t.Errorf("port %d owner = %d, want %d", p.Port, p.PID, want[p.Port])
 		}
+	}
+}
+
+func TestParseHexAddr(t *testing.T) {
+	tests := []struct {
+		name     string
+		hexStr   string
+		protocol string
+		want     string
+	}{
+		{"IPv4 wildcard", "00000000", "tcp", "0.0.0.0"},
+		{"IPv4 loopback", "0100007F", "tcp", "127.0.0.1"},
+		{"IPv4 Tailscale", "48006E64", "tcp", "100.110.0.72"},
+		{"IPv6 wildcard", "00000000000000000000000000000000", "tcp6", "::"},
+		{"IPv6 loopback", "00000000000000000000000001000000", "tcp6", "::1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseHexAddr(tt.hexStr, tt.protocol)
+			if got != tt.want {
+				t.Errorf("parseHexAddr(%q, %q) = %q, want %q", tt.hexStr, tt.protocol, got, tt.want)
+			}
+		})
 	}
 }

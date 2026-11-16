@@ -75,7 +75,7 @@ func newUnforwardCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&unforwardHost, "host", "H", "localhost", "Remote host")
-	cmd.Flags().StringVarP(&unforwardConnection, "connection", "c", "", "SSH connection identifier")
+	cmd.Flags().StringVarP(&unforwardConnection, "connection", "c", "", "Remote host name (default: this host's hostname)")
 
 	return cmd
 }

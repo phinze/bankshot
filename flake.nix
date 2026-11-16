@@ -19,7 +19,7 @@
       };
       homeManagerModules.bankshot = self.homeManagerModules.default;
 
-      # NixOS module (security.wrappers for eBPF capabilities)
+      # NixOS module (the monitor as a system service)
       nixosModules.default = { pkgs, ... }: {
         imports = [ ./nix/nixos ];
         config._module.args.bankshotPackages = self.packages;
@@ -45,7 +45,7 @@
 
           src = builtins.path { path = ./.; name = "bankshot-source"; };
 
-          vendorHash = "sha256-WD3fsT299ieODrbZAp2z4RTgDzu/MGET0fWI70ggtKg=";
+          vendorHash = "sha256-GWBODI5QQb0xmiSAVmV6GzN3XmSIgTrJay5oMPvLkVY=";
 
           # Make ssh available for tests
           nativeBuildInputs = [pkgs.openssh];
@@ -115,9 +115,6 @@
           delve
           goreleaser
           svu
-          # eBPF code generation (go generate ./pkg/monitor/portbpf/...)
-          llvmPackages_19.clang-unwrapped
-          llvmPackages_19.llvm
         ];
 
         shellHook = ''

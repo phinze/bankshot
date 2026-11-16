@@ -3,7 +3,7 @@ package monitor
 import "context"
 
 // PortEventSource is implemented by any monitor that can emit port events.
-// Both polling-based monitors and eBPF monitors satisfy this interface.
+// The polling Monitor satisfies it.
 type PortEventSource interface {
 	Start(ctx context.Context) error
 	Events() <-chan PortEvent

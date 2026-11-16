@@ -26,10 +26,11 @@ func newRootCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "bankshotd",
-		Short: "Bankshot daemon - opens URLs and forwards ports from remote SSH sessions",
-		Long: `Bankshot daemon runs on your local machine and listens for commands
-from remote SSH sessions. It can open URLs in your local browser and
-manage SSH port forwards dynamically.`,
+		Short: "Bankshot daemon - acts on your laptop for remote hosts",
+		Long: `Bankshot daemon runs on your local machine and acts for bankshot monitors
+on remote hosts, which reach it over the tailnet: it opens URLs in your
+browser, serves clipboard images, proxies 1Password and the ssh agent, and
+holds the port forwards that bankshot forward and bankshot wrap ask for.`,
 		Version: version.GetFullVersion(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Set up logging
