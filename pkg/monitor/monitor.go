@@ -28,17 +28,21 @@ const (
 	PortClosed EventType = "closed"
 )
 
-// Monitor watches for port changes
+// Monitor watches for ports that one process, or any of its descendants,
+// starts listening on.
 type Monitor struct {
 	pid          int
 	pollInterval time.Duration
 	debounceTime time.Duration
 	events       chan PortEvent
 	logger       *slog.Logger
+	owners       func(ports []Port) // fills in each port's owning PID
+	parentOf     func(pid int) int  // a process's parent, 0 if unknown
 
 	mu           sync.RWMutex
 	knownPorts   map[int]Port
 	pendingPorts map[int]time.Time // For debouncing
+	foreign      map[int]bool      // new ports some other process holds
 }
 
 // New creates a new port monitor with default 500ms poll interval
@@ -55,9 +59,23 @@ func NewWithInterval(pid int, logger *slog.Logger, pollInterval time.Duration) *
 		debounceTime: 100 * time.Millisecond,
 		events:       make(chan PortEvent, 10),
 		logger:       logger,
+		owners:       func(ports []Port) { resolvePortOwners("/proc", ports) },
+		parentOf:     ResolveParentPID,
 		knownPorts:   make(map[int]Port),
 		pendingPorts: make(map[int]time.Time),
+		foreign:      make(map[int]bool),
 	}
+}
+
+// ours reports whether pid is the watched process or one of its descendants.
+func (m *Monitor) ours(pid int) bool {
+	for depth := 0; pid > 1 && depth < 64; depth++ {
+		if pid == m.pid {
+			return true
+		}
+		pid = m.parentOf(pid)
+	}
+	return false
 }
 
 // Start begins monitoring for port changes
@@ -125,14 +143,31 @@ func (m *Monitor) checkPorts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check for new ports
-	for portNum := range currentMap {
-		if _, exists := m.knownPorts[portNum]; !exists {
-			// New port detected - add to pending for debouncing
-			if _, pending := m.pendingPorts[portNum]; !pending {
-				m.pendingPorts[portNum] = time.Now()
-				m.logger.Debug("new port detected (pending)", slog.Int("port", portNum))
-			}
+	// The socket table lists the whole network namespace, so look up who
+	// holds each new port and keep only the ones this process tree opened.
+	var fresh []Port
+	for portNum, port := range currentMap {
+		_, known := m.knownPorts[portNum]
+		_, pending := m.pendingPorts[portNum]
+		if !known && !pending && !m.foreign[portNum] {
+			fresh = append(fresh, port)
+		}
+	}
+	if len(fresh) > 0 {
+		m.owners(fresh)
+	}
+	for _, port := range fresh {
+		if !m.ours(port.PID) {
+			m.foreign[port.Port] = true
+			m.logger.Debug("new port belongs to another process", slog.Int("port", port.Port), slog.Int("pid", port.PID))
+			continue
+		}
+		m.pendingPorts[port.Port] = time.Now()
+		m.logger.Debug("new port detected (pending)", slog.Int("port", port.Port))
+	}
+	for portNum := range m.foreign {
+		if _, open := currentMap[portNum]; !open {
+			delete(m.foreign, portNum)
 		}
 	}
 
